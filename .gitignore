@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.local
+# Бүх орчны файл — `.env.railway`, `.env.production` гэх мэт
+# нэр бүрийг тусад нь бичих нь мартагдахад нууц үг git-д орох эрсдэлтэй.
+.env*
+!.env.example
+*.log
+.DS_Store
+probe-*.json

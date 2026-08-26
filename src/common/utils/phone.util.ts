@@ -1,0 +1,45 @@
+/**
+ * Утасны дугаарыг нормчилно — DB-д ҮРГЭЛЖ 8 оронтой цэвэр тоогоор хадгална.
+ *
+ * Хүлээж авах хэлбэрүүд: `+976 9911-2233`, `976-99112233`, `99 11 22 33`,
+ * `(+976) 99112233` → бүгд `99112233` болно.
+ *
+ * Утас нь Loopy-тэй холбогдох ГОЛ түлхүүр (docs/01 §4) тул хоёр талд ижил
+ * дүрмээр нормчлох ёстой — Loopy-гийн `normalizePhone` мөн 8 орон авдаг.
+ */
+export function normalizePhone(input: string | null | undefined): string | null {
+  if (!input) return null;
+  let digits = input.replace(/\D/g, '');
+  // Улсын код (976) урдаа байвал хасна — 976 + 8 орон = 11 орон.
+  if (digits.length === 11 && digits.startsWith('976')) digits = digits.slice(3);
+  // Зарим үед 00976 гэж бичдэг.
+  if (digits.length === 13 && digits.startsWith('00976')) digits = digits.slice(5);
+  return digits.length === 8 ? digits : null;
+}
+
+/** Дугаар хүчинтэй эсэх (Монголын гар утас 8 орон, 5–9-өөр эхэлнэ). */
+export function isValidPhone(input: string | null | undefined): boolean {
+  const p = normalizePhone(input);
+  return !!p && /^[5-9]\d{7}$/.test(p);
+}
+
+/**
+ * Харуулахад далдална — `/pay` хуудасны 2-р түвшинд (docs/01 §6.6).
+ * `99112233` → `99••2233`
+ */
+export function maskPhone(phone: string): string {
+  return phone.length === 8 ? `${phone.slice(0, 2)}••${phone.slice(4)}` : phone;
+}
+
+/**
+ * Нэрийг далдална — `/pay`-ийн 1-р түвшинд зөвхөн «зөв хүн мөн үү» гэдгийг
+ * батлахад хангалттай хэмжээгээр. `Батаа` → `Б***а`
+ *
+ * Гишүүний бүрэн нэрийг утасны дугаараар хэн ч харах ёсгүй.
+ */
+export function maskName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length <= 1) return trimmed;
+  if (trimmed.length === 2) return `${trimmed[0]}•`;
+  return `${trimmed[0]}${'•'.repeat(Math.min(3, trimmed.length - 2))}${trimmed.at(-1)}`;
+}
