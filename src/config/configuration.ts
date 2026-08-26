@@ -3,10 +3,23 @@
  * dot-path-аар хандана. `env.validation.ts` нь boot үед түүхий env-ийг шалгасан
  * тул энд утга баталгаатай гэж үзнэ.
  */
+/**
+ * Төгсгөлийн ташуу зураасыг арилгана.
+ *
+ * ЯАГААД ТӨВЛӨРҮҮЛСЭН ВЭ: хаягуудыг `${base}/pay/return` маягаар угсардаг тул
+ * `DASHBOARD_URL`-д ташуу зураас үлдвэл `…app//pay/return` болно. Урьд нь
+ * газар бүр өөрөө `.replace(/\/$/, '')` хийдэг байсан — нэг нь хийж, нөгөө нь
+ * мартсанаас Wallet холбоос ажиллаад Bonum-ын буцах хаяг эвдэрсэн.
+ *
+ * CORS-д бүр чухал: хөтөч `Origin`-г ташуу зураасГҮЙ илгээдэг бөгөөд
+ * харьцуулалт нь ЯГ ТААРАХ шаардлагатай. Ганц зураас бүх хүсэлтийг хаана.
+ */
+const trimSlash = (v: string): string => v.replace(/\/+$/, '');
+
 const toList = (v?: string): string[] =>
   (v ?? '')
     .split(',')
-    .map((s) => s.trim())
+    .map((s) => trimSlash(s.trim()))
     .filter(Boolean);
 
 const toInt = (v: string | undefined, def: number): number => {
@@ -18,8 +31,8 @@ export const configuration = () => ({
   env: process.env.NODE_ENV ?? 'development',
   isProd: process.env.NODE_ENV === 'production',
   port: toInt(process.env.PORT, 3100),
-  apiBaseUrl: process.env.API_BASE_URL ?? 'http://localhost:3100',
-  dashboardUrl: process.env.DASHBOARD_URL ?? 'http://localhost:3101',
+  apiBaseUrl: trimSlash(process.env.API_BASE_URL ?? 'http://localhost:3100'),
+  dashboardUrl: trimSlash(process.env.DASHBOARD_URL ?? 'http://localhost:3101'),
   corsOrigins: toList(process.env.CORS_ORIGINS),
   /** Бүх огнооны тооцоолол (хугацаа дуусах, ирц, сануулга) энэ бүсээр. */
   timezone: process.env.TZ ?? 'Asia/Ulaanbaatar',
@@ -83,7 +96,9 @@ export const configuration = () => ({
     terminalId: process.env.BONUM_TERMINAL_ID,
     checksumKey: process.env.BONUM_CHECKSUM_KEY,
     webhookSecret: process.env.BONUM_WEBHOOK_SECRET,
-    returnUrl: process.env.BONUM_RETURN_URL,
+    returnUrl: process.env.BONUM_RETURN_URL
+      ? trimSlash(process.env.BONUM_RETURN_URL)
+      : undefined,
     /** Нэхэмжлэхийн хүчинтэй хугацаа (секунд). */
     invoiceTtlSec: toInt(process.env.INVOICE_TTL_SEC, 3600),
   },

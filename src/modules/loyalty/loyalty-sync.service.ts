@@ -142,10 +142,8 @@ export class LoyaltySyncService implements OnModuleInit {
    * төлбөрөө хийнэ (docs/01-integration-model.md §6.6, 2-р түвшин).
    */
   private fieldsFor(m: Member): { key: string; label: string; value: string }[] {
-    const base = (this.config.get<string>('dashboardUrl') ?? '').replace(
-      /\/$/,
-      '',
-    );
+    // Ташуу зураасыг `configuration.ts` аль хэдийн арилгасан.
+    const base = this.config.get<string>('dashboardUrl') ?? '';
     const fields = [
       { key: 'winfitPay', label: 'Эрх сунгах', value: `${base}/pay/${m.payToken}` },
     ];
