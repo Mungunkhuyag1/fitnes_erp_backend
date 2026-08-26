@@ -27,6 +27,15 @@ export class IntegrationToken {
   expiresAt: Date;
 
   /**
+   * Bonum-ын refresh token — access-ээс хамаагүй урт настай (≈24 цаг).
+   *
+   * Үүнийг хадгалснаар access дуусахад `auth/create` биш `auth/refresh`
+   * дуудна. Bonum нь `auth/create`-ыг илүү чанга throttle хийдэг.
+   */
+  @Column({ name: 'refresh_token', type: 'text', nullable: true })
+  refreshToken: string | null;
+
+  /**
    * Амжилтгүй болсны дараах хүлээлт. Энэ хугацаа дуустал ДАХИН auth
    * ХИЙХГҮЙ — унасан үйлчилгээ рүү дахин дахин цохилтгүй.
    */

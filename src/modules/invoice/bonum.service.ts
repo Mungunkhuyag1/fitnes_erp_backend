@@ -1,9 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectDataSource } from '@nestjs/typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { DataSource } from 'typeorm';
-import { IntegrationToken } from './integration-token.entity';
+import { BonumTokenStoreFactory } from './bonum-token.store';
 
 interface CreateInvoiceInput {
   amount: number;
@@ -18,43 +16,43 @@ export interface CreateInvoiceResult {
   followUpLink: string;
 }
 
+interface AuthResponse {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn?: number;
+}
+
 /**
  * Bonum web payment (PSP) интеграци — ЖИНХЭНЭ дуудлага.
  *
  *   auth    : GET  /bonum-gateway/ecommerce/auth/create
- *             (Authorization: AppSecret …, X-TERMINAL-ID: …)  → { accessToken, expiresIn }
+ *             (Authorization: AppSecret …, X-TERMINAL-ID: …)
+ *             → { accessToken, refreshToken, expiresIn }
+ *   refresh : GET  /bonum-gateway/ecommerce/auth/refresh
+ *             (Authorization: Bearer <refreshToken>)
  *   invoice : POST /bonum-gateway/ecommerce/invoices
- *             (Authorization: Bearer …)                       → { invoiceId, followUpLink }
+ *             (Authorization: Bearer <accessToken>)
  *   webhook : x-checksum-v2 = HMAC-SHA256(rawBody, CHECKSUM_KEY) hex
  *
- * ⚠ Bonum-ын auth нь ХЯЗГААРТАЙ (throttle). Тиймээс токеныг гурван давхар
- * хамгаалалттай барина:
+ * ⚠ Bonum-ын auth нь ХЯЗГААРТАЙ (throttle). Дөрвөн давхар хамгаалалт:
  *
- *   1. Санах ойн кэш   — ердийн хүсэлт DB хүртэл ч очихгүй.
- *   2. `integration_tokens` хүснэгт — restart/redeploy-д амьд үлдэнэ.
- *   3. `SELECT … FOR UPDATE` — зэрэг ирсэн хүсэлтүүдээс ЗӨВХӨН НЭГ нь auth
- *      хийнэ, үлдсэн нь тэр токеныг хүлээж авна («сүргийн дайралт» үгүй).
+ *   1. Санах ойн кэш   — ердийн хүсэлт сан хүртэл ч очихгүй.
+ *   2. Гадаад сан      — Redis эсвэл Postgres; restart-д амьд үлдэнэ.
+ *   3. Refresh token   — access дуусахад `auth/create` БИШ `auth/refresh`.
+ *                        Refresh нь ≈24 цаг настай тул `auth/create` нь
+ *                        өдөрт нэг л удаа дуудагдана.
+ *   4. Single-flight   — зэрэг ирсэн хүсэлтээс НЭГ нь л auth хийнэ.
  *
- * Мөн амжилтгүй болбол `retry_after` тавьж түр завсарлана — унасан Bonum
- * руу секунд тутам цохихгүй.
- *
- * Bonum-ын auth нь refresh token БУЦААДАГГҮЙ — зөвхөн `accessToken` +
- * `expiresIn`. Тиймээс сэргээх цорын ганц зам нь дахин `auth/create`.
+ * Амжилтгүй болбол backoff тавьж түр завсарлана — унасан үйлчилгээ рүү
+ * секунд тутам цохихгүй.
  */
-/** Entity талбар → DB багана (`orUpdate` нь баганын нэр шаарддаг). */
-const COLUMN: Record<string, string> = {
-  accessToken: 'access_token',
-  expiresAt: 'expires_at',
-  retryAfter: 'retry_after',
-  lastError: 'last_error',
-};
-
 @Injectable()
 export class BonumService {
-  private static readonly PROVIDER = 'bonum';
   /** Auth амжилтгүй болоход хэдэн секунд завсарлах. 429 бол уртаар. */
   private static readonly BACKOFF_SEC = 20;
   private static readonly BACKOFF_THROTTLED_SEC = 120;
+  /** Хүсэлтийн хугацаа — Bonum хариугүй өлгөөстэй байхаас сэргийлнэ. */
+  private static readonly TIMEOUT_MS = 15_000;
 
   private readonly log = new Logger(BonumService.name);
   private token: { value: string; expiresAt: number } | null = null;
@@ -63,8 +61,12 @@ export class BonumService {
 
   constructor(
     private readonly config: ConfigService,
-    @InjectDataSource() private readonly ds: DataSource,
+    private readonly stores: BonumTokenStoreFactory,
   ) {}
+
+  private get store() {
+    return this.stores.store;
+  }
 
   isConfigured(): boolean {
     return !!(
@@ -103,140 +105,104 @@ export class BonumService {
     return this.inflight;
   }
 
-  /**
-   * DB-ийн мөрийг түгжиж авснаар ОЛОН процесс (Railway replica) байсан ч
-   * зөвхөн нэг нь Bonum руу очно.
-   */
   private async resolveToken(force: boolean): Promise<string> {
-    /**
-     * ⚠ Auth амжилтгүй болбол түүнийг ГҮЙЛГЭЭ ДОТОР бичиж БОЛОХГҮЙ —
-     * дараа нь алдаа шидэхэд гүйлгээ буцаж, backoff устана. Тиймээс
-     * алдааг энд тэмдэглээд гүйлгээ хаагдсаны ДАРАА бичнэ.
-     */
-    let failure: { retryAfter: Date; lastError: string } | undefined;
-
-    const token = await this.ds.transaction(async (m) => {
-      const repo = m.getRepository(IntegrationToken);
-      const now = new Date();
-
-      // Түгжээ авах — нөгөө процесс auth хийж байвал энд хүлээнэ.
-      const row = await repo.findOne({
-        where: { provider: BonumService.PROVIDER },
-        lock: { mode: 'pessimistic_write' },
-      });
-
-      // Хүлээж байх зуур нөгөө процесс шинэ токен бичсэн бол түүнийг авна.
-      if (!force && row && row.expiresAt > now) {
-        this.token = {
-          value: row.accessToken,
-          expiresAt: row.expiresAt.getTime(),
-        };
-        return row.accessToken;
+    // Нөгөө процесс (replica) саяхан шинэчилсэн байж болно.
+    if (!force) {
+      const cached = await this.store.getAccess().catch(() => null);
+      if (cached) {
+        this.token = { value: cached, expiresAt: Date.now() + 60_000 };
+        return cached;
       }
+    }
 
-      // Саяхан унасан бол Bonum руу дахин очихгүй — шууд буцаана.
-      if (row?.retryAfter && row.retryAfter > now) {
-        const sec = Math.ceil((row.retryAfter.getTime() - now.getTime()) / 1000);
-        throw new ServiceUnavailableException(
-          `Bonum түр хүртээмжгүй байна — ${sec}с дараа дахин оролдоно уу` +
-            (row.lastError ? ` (${row.lastError})` : ''),
+    const backoff = await this.store.getBackoff().catch(() => null);
+    if (backoff) {
+      const sec = Math.ceil((backoff.until.getTime() - Date.now()) / 1000);
+      throw new ServiceUnavailableException(
+        `Bonum түр хүртээмжгүй байна — ${sec}с дараа дахин оролдоно уу` +
+          (backoff.error ? ` (${backoff.error})` : ''),
+      );
+    }
+
+    // ★ Эхлээд refresh — `auth/create` нь илүү чанга хязгаартай.
+    const refresh = await this.store.getRefresh().catch(() => null);
+    let data: AuthResponse | null = null;
+    if (refresh) {
+      try {
+        data = await this.authRefresh(refresh);
+      } catch (e) {
+        // Refresh хүчингүй бол энэ нь алдаа биш — шинээр авна.
+        this.log.warn(
+          `Bonum refresh амжилтгүй, шинэ токен авна: ${(e as Error).message}`,
         );
       }
+    }
 
-      let data: { accessToken: string; expiresIn?: number };
+    if (!data) {
       try {
-        data = await this.authenticate();
+        data = await this.authCreate();
       } catch (e) {
         const err = e as Error & { status?: number };
-        failure = {
-          retryAfter: new Date(
-            now.getTime() +
-              (err.status === 429
-                ? BonumService.BACKOFF_THROTTLED_SEC
-                : BonumService.BACKOFF_SEC) *
-                1000,
-          ),
-          lastError: err.message.slice(0, 300),
-        };
-        return null;
+        const sec =
+          err.status === 429
+            ? BonumService.BACKOFF_THROTTLED_SEC
+            : BonumService.BACKOFF_SEC;
+        await this.store.setBackoff(sec, err.message).catch(() => undefined);
+        this.log.warn(`Bonum auth унав — ${sec}с завсарлана: ${err.message}`);
+        throw new ServiceUnavailableException(err.message);
       }
+    }
 
-      // 60 секундын нөөц хугацаа хасна — хүсэлт явж байх зуур хүчингүй болохоос сэргийлнэ.
-      const ttlSec = Math.max(60, (data.expiresIn ?? 1800) - 60);
-      const expiresAt = new Date(now.getTime() + ttlSec * 1000);
-      await this.remember(repo, {
-        accessToken: data.accessToken,
-        expiresAt,
-        retryAfter: null,
-        lastError: null,
-      });
-      this.token = { value: data.accessToken, expiresAt: expiresAt.getTime() };
-      this.log.log(`Bonum токен авав (${ttlSec}с хүчинтэй)`);
-      return data.accessToken;
-    });
-
-    if (token !== null) return token;
-
-    const f = failure as { retryAfter: Date; lastError: string };
-    await this.remember(this.ds.getRepository(IntegrationToken), f);
-    this.log.warn(
-      `Bonum auth унав — ${Math.ceil(
-        (f.retryAfter.getTime() - Date.now()) / 1000,
-      )}с завсарлана: ${f.lastError}`,
+    // ⚠ TTL-ийг Bonum-ын `expiresIn`-ээс авна. Тогтмол утга бичвэл токен
+    // эрт хүчингүй болоход кэш «хүчинтэй» гэж худал хэлж 401 үүснэ.
+    // 60 секундын нөөц — хүсэлт явж байх зуур хүчингүй болохоос сэргийлнэ.
+    const ttlSec = Math.max(60, (data.expiresIn ?? 1800) - 60);
+    await this.store
+      .save(data.accessToken, ttlSec, data.refreshToken ?? null)
+      .catch((e: unknown) =>
+        // Сан унасан ч токен нь хүчинтэй — санах ойгоор үргэлжилнэ.
+        this.log.warn(`Токен хадгалж чадсангүй: ${(e as Error).message}`),
+      );
+    this.token = { value: data.accessToken, expiresAt: Date.now() + ttlSec * 1000 };
+    this.log.log(
+      `Bonum токен авав (${ttlSec}с, ${data.refreshToken ? 'refresh-тэй' : 'refresh-гүй'})`,
     );
-    throw new ServiceUnavailableException(f.lastError);
+    return data.accessToken;
   }
 
-  /** Токены мөрийг үүсгэх эсвэл шинэчлэх. */
-  private async remember(
-    repo: import('typeorm').Repository<IntegrationToken>,
-    patch: Partial<IntegrationToken>,
-  ): Promise<void> {
-    await repo
-      .createQueryBuilder()
-      .insert()
-      .into(IntegrationToken)
-      .values({
-        provider: BonumService.PROVIDER,
-        accessToken: patch.accessToken ?? '',
-        // Алдаа бичих үед хуучин токеныг хүчингүй болгохгүй — доорх
-        // `orUpdate` зөвхөн дамжуулсан баганыг л шинэчилнэ.
-        expiresAt: patch.expiresAt ?? new Date(0),
-        retryAfter: patch.retryAfter ?? null,
-        lastError: patch.lastError ?? null,
-      })
-      // Зөвхөн ДАМЖУУЛСАН баганыг шинэчилнэ: алдаа бичихэд хүчинтэй
-      // токен арилахгүй, токен бичихэд `retry_after` цэвэрлэгдэнэ.
-      .orUpdate(
-        Object.keys(patch).map((k) => COLUMN[k] ?? k),
-        ['provider'],
-      )
-      .execute();
+  /** Шинэ токен — ХЯЗГААРТАЙ эндпойнт, боломжтой бол refresh хэрэглэ. */
+  private authCreate(): Promise<AuthResponse> {
+    return this.auth(`${this.base()}/bonum-gateway/ecommerce/auth/create`, {
+      Authorization: `AppSecret ${this.config.getOrThrow<string>('bonum.appSecret')}`,
+      'X-TERMINAL-ID': this.config.getOrThrow<string>('bonum.terminalId'),
+    });
   }
 
-  /** Bonum руу бодит auth дуудлага. */
-  private async authenticate(): Promise<{
-    accessToken: string;
-    expiresIn?: number;
-  }> {
+  private authRefresh(refreshToken: string): Promise<AuthResponse> {
+    return this.auth(`${this.base()}/bonum-gateway/ecommerce/auth/refresh`, {
+      Authorization: `Bearer ${refreshToken}`,
+    });
+  }
+
+  private async auth(
+    url: string,
+    headers: Record<string, string>,
+  ): Promise<AuthResponse> {
     let res: Response;
     try {
-      res = await fetch(`${this.base()}/bonum-gateway/ecommerce/auth/create`, {
+      res = await fetch(url, {
         method: 'GET',
-        headers: {
-          Authorization: `AppSecret ${this.config.getOrThrow<string>('bonum.appSecret')}`,
-          'X-TERMINAL-ID': this.config.getOrThrow<string>('bonum.terminalId'),
-        },
-        signal: AbortSignal.timeout(15_000),
+        headers,
+        signal: AbortSignal.timeout(BonumService.TIMEOUT_MS),
       });
     } catch (e) {
-      // Сүлжээ тасарсан / timeout — Bonum огт хариу өгөөгүй.
       throw new Error(`Bonum-тай холбогдож чадсангүй (${(e as Error).name})`);
     }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      this.log.error(`Bonum auth амжилтгүй: ${res.status} ${body.slice(0, 300)}`);
-      const err = Object.assign(
+      // ⚠ Токеныг ХЭЗЭЭ Ч лог руу бичихгүй — зөвхөн статус, алдааны бие.
+      this.log.error(`Bonum auth ${res.status}: ${body.slice(0, 200)}`);
+      throw Object.assign(
         new Error(
           res.status === 429
             ? 'Bonum хүсэлтийн хязгаарт хүрсэн (auth 429)'
@@ -244,9 +210,10 @@ export class BonumService {
         ),
         { status: res.status },
       );
-      throw err;
     }
-    return (await res.json()) as { accessToken: string; expiresIn?: number };
+    const data = (await res.json()) as AuthResponse;
+    if (!data.accessToken) throw new Error('Bonum accessToken буцаасангүй');
+    return data;
   }
 
   // ── Нэхэмжлэх ──
@@ -267,7 +234,11 @@ export class BonumService {
     // Токен хүчингүй (401) бол НЭГ удаа сэргээж дахин илгээнэ.
     let res = await this.post(await this.getToken(), body);
     if (res.status === 401) {
+      // Токен хүчингүй болжээ — САНГААС ч устгана, эс бөгөөс бусад
+      // процесс тэр хуучин токеныг уншсаар байна.
       this.log.warn('Bonum invoice 401 — токен сэргээж дахин илгээж байна');
+      this.token = null;
+      await this.store.clear().catch(() => undefined);
       res = await this.post(await this.getToken(true), body);
     }
 

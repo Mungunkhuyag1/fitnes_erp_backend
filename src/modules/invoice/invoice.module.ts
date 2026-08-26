@@ -4,6 +4,7 @@ import { Member } from '../member/member.entity';
 import { MembershipModule } from '../membership/membership.module';
 import { Package } from '../package/package.entity';
 import { BonumService } from './bonum.service';
+import { BonumTokenStoreFactory } from './bonum-token.store';
 import { BonumWebhookController } from './bonum-webhook.controller';
 import { IntegrationToken } from './integration-token.entity';
 import { Invoice } from './invoice.entity';
@@ -17,7 +18,12 @@ import { InvoiceService } from './invoice.service';
     MembershipModule,
   ],
   controllers: [InvoiceController, BonumWebhookController],
-  providers: [InvoiceService, BonumService, InvoiceScheduler],
+  providers: [
+    InvoiceService,
+    BonumService,
+    BonumTokenStoreFactory,
+    InvoiceScheduler,
+  ],
   exports: [InvoiceService, BonumService],
 })
 export class InvoiceModule {}
