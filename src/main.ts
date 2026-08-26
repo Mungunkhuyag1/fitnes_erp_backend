@@ -11,17 +11,40 @@ import { AppModule } from './app.module';
  * Stub горим нь жинхэнэ төхөөрөмж/банк/Loopy-гүйгээр ажилладаг тул хөгжүүлэлтэд
  * зайлшгүй. Гэхдээ production-д ийм байвал «төлбөр төлөгдсөн» мэт харагдаад
  * бодитоор юу ч болохгүй — чимээгүй, аюултай алдаа. Тиймээс энд шууд унана.
+ *
+ * ★ `device` нь ҮЛ ХАМААРНА.
+ *
+ * Терминал нь фитнесийн дотоод сүлжээнд, NAT-ын ард байдаг тул үүлнээс ШУУД
+ * хүрэхгүй (`direct` боломжгүй). Холбох цорын ганц зам нь on-prem agent
+ * боловч `AgentDeviceGateway` нь B12b-д хэрэгжинэ — одоогоор `throw` хийдэг
+ * хоосон загвар. Өөрөөр хэлбэл production-д `stub` нь ЦОРЫН ГАНЦ сонголт;
+ * үүнийг хориглох нь бүх deploy-г хаана.
+ *
+ * Харин чимээгүй өнгөрөөхгүй — асах бүрд анхааруулга бичнэ. Ингэснээр
+ * agent хэрэгжсэний дараа `stub`-аар үлдсэн нь логоос шууд харагдана.
  */
 function assertNoStubInProd(config: ConfigService): void {
   if (config.get<string>('env') !== 'production') return;
   const gateways = config.get<Record<string, string>>('gateways') ?? {};
+
   const stubbed = Object.entries(gateways)
     .filter(([, mode]) => mode === 'stub')
     .map(([name]) => name);
-  if (stubbed.length) {
+
+  // Мөнгө, картад хамаатай интеграциуд — хатуу хориотой.
+  const fatal = stubbed.filter((name) => name !== 'device');
+  if (fatal.length) {
     throw new Error(
-      `⛔ Production дээр stub gateway идэвхтэй байна: ${stubbed.join(', ')}. ` +
-        `DEVICE_GATEWAY / LOOPY_MODE / BONUM_MODE-г жинхэнэ горимд тохируулна уу.`,
+      `⛔ Production дээр stub gateway идэвхтэй байна: ${fatal.join(', ')}. ` +
+        `LOOPY_MODE / BONUM_MODE-г жинхэнэ горимд тохируулна уу.`,
+    );
+  }
+
+  if (stubbed.includes('device')) {
+    new Logger('Bootstrap').warn(
+      '⚠ DEVICE_GATEWAY=stub — терминалын команд ХААШАА Ч ЯВАХГҮЙ. ' +
+        'Гишүүн бүртгэх, төлбөр, Wallet карт ажиллана; хаалганы хэсэг ' +
+        'on-prem agent (B12b) хэрэгжих хүртэл идэвхгүй.',
     );
   }
 }
