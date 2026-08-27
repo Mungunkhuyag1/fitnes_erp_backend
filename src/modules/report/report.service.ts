@@ -108,6 +108,12 @@ export class ReportService {
         (SELECT count(*) FROM locker_assignments WHERE returned_at IS NULL) AS keys_out,
         (SELECT count(*) FROM locker_assignments
           WHERE returned_at IS NULL AND due_at IS NOT NULL AND due_at < now()) AS lockers_overdue,
+        -- Удахгүй дуусах ТҮРЭЭС. Хэтэрсний ДАРАА мэдэх нь оройтдог —
+        -- ресепшн урьдчилж сунгуулах боломжтой байх ёстой.
+        (SELECT count(*) FROM locker_assignments
+          WHERE returned_at IS NULL AND due_at IS NOT NULL
+            AND due_at >= now() AND due_at < now() + interval '7 days')
+          AS lockers_expiring,
 
         -- Өнөөдрийн орлого, эх сурвалжаар
         (SELECT coalesce(sum(amount),0) FROM memberships, today
@@ -148,6 +154,7 @@ export class ReportService {
       lockers: {
         keysOut: n('keys_out'),
         overdueRentals: n('lockers_overdue'),
+        expiringRentals: n('lockers_expiring'),
       },
       revenueToday: {
         cash: n('rev_cash'),

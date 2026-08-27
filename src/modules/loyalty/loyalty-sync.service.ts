@@ -1,9 +1,13 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { MemberStatus } from '../../common/enums/member-status.enum';
 import { date as fmtDate } from './loyalty.format';
+import {
+  LockerAssignment,
+  LockerAssignmentType,
+} from '../locker/locker-assignment.entity';
 import { Member } from '../member/member.entity';
 import { PermanentError } from '../outbox/outbox.errors';
 import { OutboxRegistry } from '../outbox/outbox.registry';
@@ -29,6 +33,8 @@ export class LoyaltySyncService implements OnModuleInit {
   constructor(
     private readonly client: LoyaltyClient,
     @InjectRepository(Member) private readonly members: Repository<Member>,
+    @InjectRepository(LockerAssignment)
+    private readonly assignments: Repository<LockerAssignment>,
     private readonly registry: OutboxRegistry,
     private readonly config: ConfigService,
   ) {}
@@ -111,7 +117,7 @@ export class LoyaltySyncService implements OnModuleInit {
 
     this.registry.register(LOYALTY_TOPICS.FIELDS, (p) =>
       this.withCard(p, async (m, serial) => {
-        await this.client.setCardFields(serial, this.fieldsFor(m));
+        await this.client.setCardFields(serial, await this.fieldsFor(m));
       }),
     );
 
@@ -141,7 +147,9 @@ export class LoyaltySyncService implements OnModuleInit {
    * `pay_token` нь гишүүн бүрд өөр тул линк нь ХУВИЙН — картаа нээгээд шууд
    * төлбөрөө хийнэ (docs/01-integration-model.md §6.6, 2-р түвшин).
    */
-  private fieldsFor(m: Member): { key: string; label: string; value: string }[] {
+  private async fieldsFor(
+    m: Member,
+  ): Promise<{ key: string; label: string; value: string }[]> {
     // Ташуу зураасыг `configuration.ts` аль хэдийн арилгасан.
     const base = this.config.get<string>('dashboardUrl') ?? '';
     const fields = [
@@ -152,6 +160,28 @@ export class LoyaltySyncService implements OnModuleInit {
         key: 'winfitEnds',
         label: 'Эрх дуусах',
         value: fmtDate(m.accessEndsAt, this.tz),
+      });
+    }
+
+    // ── Шүүгээний ТҮРЭЭС ──
+    //
+    // Зөвхөн түрээс: өдрийн шүүгээ өдөр бүр өөр байх ба картад бичих
+    // хооронд хэдэн ч удаа солигдоно — карт мөнхөд хоцрогдоно.
+    const rental = await this.assignments.findOne({
+      where: {
+        memberId: m.id,
+        returnedAt: IsNull(),
+        type: LockerAssignmentType.RENTAL,
+      },
+      order: { issuedAt: 'DESC' },
+    });
+    if (rental) {
+      fields.push({
+        key: 'winfitLocker',
+        label: 'Шүүгээ',
+        value: rental.dueAt
+          ? `${rental.lockerZone}${rental.lockerNumber} · ${fmtDate(rental.dueAt, this.tz)} хүртэл`
+          : `${rental.lockerZone}${rental.lockerNumber}`,
       });
     }
     return fields;
