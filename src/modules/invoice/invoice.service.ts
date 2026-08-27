@@ -26,10 +26,19 @@ export interface InvoiceView {
   id: string;
   memberId: string;
   memberName?: string | null;
+  /**
+   * Гишүүний дугаар.
+   *
+   * ⚠ Урьд нь ЭНЭ ТАЛБАР БАЙГААГҮЙ атлаа dashboard нь хүлээж, `№` гэж
+   * хоосон хэвлэдэг байв (`undefined !== null` нь үнэн).
+   */
+  memberNo?: number | null;
   packageName: string;
   days: number;
   amount: number;
   status: InvoiceStatus;
+  /** Төлбөрийн суваг — одоогоор зөвхөн `bonum`. */
+  provider: string;
   payUrl: string | null;
   transactionId: string;
   paidAt: Date | null;
@@ -116,7 +125,7 @@ export class InvoiceService {
       const res = await this.bonum.createInvoice({
         amount: Number(pkg.price),
         transactionId,
-        callback: this.callbackUrl(),
+        callback: this.callbackUrl(invoice.id),
         description: `${pkg.name} — ${member.name}`,
       });
       invoice.providerInvoiceId = res.invoiceId;
@@ -131,11 +140,19 @@ export class InvoiceService {
     return this.view(invoice, member.name);
   }
 
-  private callbackUrl(): string {
-    return (
+  /**
+   * Bonum-ын буцах хаяг — АЛЬ нэхэмжлэх болохыг зааж өгнө.
+   *
+   * Bonum нь буцаахдаа зөвхөн энэ хаягийг дуудна; нэхэмжлэхийн дугаарыг
+   * өөрөө нэмдэггүй. Query-д оруулахгүй бол буцах хуудас юуг шалгахаа
+   * мэдэхгүй — өмнө нь яг тэр шалтгаанаар хоосон алдаа гардаг байв.
+   */
+  private callbackUrl(invoiceId: string): string {
+    const base =
       this.config.get<string>('bonum.returnUrl') ||
-      `${this.config.get<string>('dashboardUrl')}/pay/return`
-    );
+      `${this.config.get<string>('dashboardUrl')}/pay/return`;
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}invoice=${encodeURIComponent(invoiceId)}`;
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -274,12 +291,15 @@ export class InvoiceService {
     const members = ids.length
       ? await this.members.find({
           where: { id: In(ids) },
-          select: { id: true, name: true },
+          select: { id: true, name: true, memberNo: true },
         })
       : [];
-    const map = new Map(members.map((m) => [m.id, m.name]));
+    const map = new Map(members.map((m) => [m.id, m]));
     return pageResult(
-      rows.map((r) => this.view(r, map.get(r.memberId) ?? null)),
+      rows.map((r) => {
+        const m = map.get(r.memberId);
+        return this.view(r, m?.name ?? null, m?.memberNo ?? null);
+      }),
       total,
       q,
     );
@@ -299,9 +319,30 @@ export class InvoiceService {
     return this.view(row);
   }
 
-  async statusOf(id: string): Promise<{ status: InvoiceStatus; paidAt: Date | null }> {
+  /**
+   * Нийтэд нээлттэй төлөвийн хүсэлт (буцах хуудас, хүлээлтийн дэлгэц).
+   *
+   * ⚠ Зөвхөн ГИШҮҮНИЙ ӨӨРИЙН мэдэх ёстой зүйлийг буцаана — багц, дүн,
+   * төлөв. Гишүүний нэр, утас, дугаарыг ОРУУЛАХГҮЙ: нэхэмжлэхийн ID нь
+   * UUID хэдий ч энэ эндпойнт нэвтрэлтгүй.
+   */
+  async statusOf(id: string): Promise<{
+    status: InvoiceStatus;
+    paidAt: Date | null;
+    packageName: string;
+    days: number;
+    amount: number;
+    expiresAt: Date;
+  }> {
     const row = await this.find(id);
-    return { status: row.status, paidAt: row.paidAt };
+    return {
+      status: row.status,
+      paidAt: row.paidAt,
+      packageName: row.packageName,
+      days: row.days,
+      amount: Number(row.amount),
+      expiresAt: row.expiresAt,
+    };
   }
 
   private async find(id: string): Promise<Invoice> {
@@ -310,15 +351,21 @@ export class InvoiceService {
     return row;
   }
 
-  private view(i: Invoice, memberName?: string | null): InvoiceView {
+  private view(
+    i: Invoice,
+    memberName?: string | null,
+    memberNo?: number | null,
+  ): InvoiceView {
     return {
       id: i.id,
       memberId: i.memberId,
       memberName: memberName ?? null,
+      memberNo: memberNo ?? null,
       packageName: i.packageName,
       days: i.days,
       amount: Number(i.amount),
       status: i.status,
+      provider: i.provider,
       payUrl: i.payUrl,
       transactionId: i.transactionId,
       paidAt: i.paidAt,
