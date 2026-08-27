@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Member } from '../member/member.entity';
 import { Membership } from '../membership/membership.entity';
+import { SettingsModule } from '../settings/settings.module';
 import { LoyaltyClient } from './loyalty.client';
 import { LoyaltyController } from './loyalty.controller';
 import { LoyaltySyncService } from './loyalty-sync.service';
@@ -11,7 +12,10 @@ import { ReminderLog } from './reminder-log.entity';
 import { ReminderService } from './reminder.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Member, Membership, ReminderLog])],
+  imports: [
+    TypeOrmModule.forFeature([Member, Membership, ReminderLog]),
+    SettingsModule,
+  ],
   controllers: [LoyaltyController, LoyaltyWebhookController],
   providers: [
     LoyaltyClient,

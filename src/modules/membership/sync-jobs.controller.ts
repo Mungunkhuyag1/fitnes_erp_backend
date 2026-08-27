@@ -29,6 +29,7 @@ export class SyncJobsController {
     private readonly deviceReconcile2: DeviceReconcileService,
   ) {}
 
+
   @Post('expire')
   @ApiOperation({ summary: 'Хугацаа дууссан гишүүдийг тэмдэглэх' })
   async expire() {

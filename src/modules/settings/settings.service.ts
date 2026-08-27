@@ -29,6 +29,21 @@ export const SETTING_DEFAULTS = {
   locker_zone_by_gender: { male: 'Эрэгтэй', female: 'Эмэгтэй' } as Record<string, string>,
   /** Шүүгээний түрээсийн санал болгох үнэ (30 хоног, ₮). */
   locker_price_per_month: 30000,
+  /**
+   * Аль Loopy программ дээр карт үүсгэхийг ЭНД шийднэ.
+   *
+   * `null` бол `LOOPY_PROGRAM_ID` env-ийг хэрэглэнэ. DB-д хадгалснаар
+   * программ солиход deploy шаардахгүй — админ дэлгэцээс сонгоно.
+   */
+  loopy_program_id: null as string | null,
+  /**
+   * Шөнийн тулгалт Loopy-гийн жагсаалтаас илүү дугаарыг ӨӨРӨӨ хасах уу.
+   *
+   * Анхдагчаар УНТРААЛТТАЙ: нэг программыг өөр эх сурвалж хуваалцаж
+   * болох тул чимээгүй устгах нь эргэж буцах аргагүй алдаа болно.
+   * Асаахаас өмнө /sync дэлгэцээс жагсаалтыг нэг харна уу.
+   */
+  loopy_allowlist_autoclean: false,
 } as const;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;

@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SettingsService } from '../settings/settings.service';
 import { PermanentError } from '../outbox/outbox.errors';
 
 export interface LoyaltyCardBrief {
@@ -57,6 +58,22 @@ export interface CardField {
  *
  * Дуудлага бүр outbox worker-ээс л явна — controller-оос шууд дуудахгүй.
  */
+export interface LoyaltyProgramBrief {
+  id: string;
+  name: string;
+  type: string;
+  target: string | null;
+  status: string;
+}
+
+export interface EnrollLink {
+  programId: string;
+  name: string;
+  /** Жагсаалтын горим унтарсан бол ХЭН Ч энэ линкээр карт үүсгэж чадна. */
+  enrollAllowlist: boolean;
+  enrollUrl: string;
+}
+
 @Injectable()
 export class LoyaltyClient {
   private readonly log = new Logger(LoyaltyClient.name);
@@ -65,13 +82,20 @@ export class LoyaltyClient {
   private windowStart = 0;
   private windowCount = 0;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly settings: SettingsService,
+  ) {}
 
+  /**
+   * ⚠ `programId`-г ЭНД шалгахгүй: тэр нь env-ээс ч, DB-ийн тохиргооноос
+   * ч ирж болно. Хаяг ба түлхүүр байвал программын жагсаалтыг татаж
+   * админд сонгуулах боломжтой — өөрөөр хэлбэл холболт «тохируулсан».
+   */
   isConfigured(): boolean {
     return !!(
       this.config.get<string>('loopy.apiUrl') &&
-      this.config.get<string>('loopy.apiKey') &&
-      this.config.get<string>('loopy.programId')
+      this.config.get<string>('loopy.apiKey')
     );
   }
 
@@ -82,8 +106,40 @@ export class LoyaltyClient {
     );
   }
 
-  private programId(): string {
-    return this.config.getOrThrow<string>('loopy.programId');
+  /**
+   * Ажиллах программын ID.
+   *
+   * Эрэмбэ: DB-ийн тохиргоо → `LOOPY_PROGRAM_ID` env. Тохиргоог админ
+   * дэлгэцээс солиход deploy шаардахгүй; env нь зөвхөн нөөц утга.
+   */
+  private async programId(): Promise<string> {
+    const chosen = await this.settings.get('loopy_program_id');
+    const id = chosen ?? this.config.get<string>('loopy.programId');
+    if (!id) {
+      throw new ServiceUnavailableException(
+        'Loopy программ сонгоогүй байна — Тохиргоо → Холболт хэсгээс сонгоно уу',
+      );
+    }
+    return id;
+  }
+
+  /** `LOOPY_PROGRAM_ID` env-ийн нөөц утга — тохиргоо хоосон үед ажиллана. */
+  envProgramId(): string | null {
+    return this.config.get<string>('loopy.programId') ?? null;
+  }
+
+  /** Loopy дээрх идэвхтэй программууд — админ сонгоход. */
+  async listPrograms(): Promise<LoyaltyProgramBrief[]> {
+    const rows = await this.call<LoyaltyProgramBrief[]>('GET', '/programs');
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  /** Сонгосон программын enroll линк (QR, постер). */
+  async enrollLink(): Promise<EnrollLink> {
+    return this.call<EnrollLink>(
+      'GET',
+      `/programs/${await this.programId()}/enroll-link`,
+    );
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -92,7 +148,7 @@ export class LoyaltyClient {
 
   /** Зөвшөөрөгдсөн дугаар нэмэх — идемпотент (Loopy давхардлыг зөвшөөрнө). */
   async allowPhone(phone: string, name?: string, note?: string): Promise<void> {
-    await this.call('POST', `/programs/${this.programId()}/allowed-phones`, {
+    await this.call('POST', `/programs/${await this.programId()}/allowed-phones`, {
       phone,
       name,
       note,
@@ -108,7 +164,7 @@ export class LoyaltyClient {
   async listAllowedPhones(): Promise<AllowedPhoneRow[]> {
     const res = await this.call<AllowedPhoneRow[]>(
       'GET',
-      `/programs/${this.programId()}/allowed-phones`,
+      `/programs/${await this.programId()}/allowed-phones`,
     );
     return Array.isArray(res) ? res : [];
   }
@@ -116,7 +172,7 @@ export class LoyaltyClient {
   async disallowPhone(phone: string): Promise<void> {
     await this.call(
       'DELETE',
-      `/programs/${this.programId()}/allowed-phones/${encodeURIComponent(phone)}`,
+      `/programs/${await this.programId()}/allowed-phones/${encodeURIComponent(phone)}`,
     );
   }
 
@@ -186,7 +242,7 @@ export class LoyaltyClient {
   ): Promise<{ items: LoyaltyCardListRow[]; total: number }> {
     const res = await this.call<{ items: LoyaltyCardListRow[]; total: number }>(
       'GET',
-      `/cards?programId=${encodeURIComponent(this.programId())}` +
+      `/cards?programId=${encodeURIComponent(await this.programId())}` +
         `&page=${page}&limit=${limit}`,
     );
     return { items: res.items ?? [], total: res.total ?? 0 };

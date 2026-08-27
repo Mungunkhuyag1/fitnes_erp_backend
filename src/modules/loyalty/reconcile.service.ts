@@ -8,6 +8,7 @@ import { Member } from '../member/member.entity';
 import { OutboxService } from '../outbox/outbox.service';
 import { LoyaltyClient, type LoyaltyCardListRow } from './loyalty.client';
 import { LOYALTY_TOPICS, loyaltyGroup } from './loyalty-sync.service';
+import { SettingsService } from '../settings/settings.service';
 
 export interface ReconcileResult {
   ran: boolean;
@@ -19,6 +20,8 @@ export interface ReconcileResult {
    * ЗӨВХӨН тоолно — автоматаар хасахгүй (§9.4-тэй ижил зарчим).
    */
   allowExtra: number;
+  /** Хасах дараалалд орсон дугаарын тоо. */
+  allowRemoved: number;
   /** Loopy-гээс уншсан картын тоо. */
   cardsScanned: number;
   /** Webhook алдагдсаны улмаас холбогдоогүй байсныг сэргээв. */
@@ -61,6 +64,7 @@ export class ReconcileService {
     private readonly client: LoyaltyClient,
     private readonly outbox: OutboxService,
     private readonly config: ConfigService,
+    private readonly settings: SettingsService,
   ) {}
 
   /**
@@ -74,11 +78,56 @@ export class ReconcileService {
     return this.run();
   }
 
+  /**
+   * Юуг устгах гэж байгааг УРЬДЧИЛАН харуулна.
+   *
+   * Устгах нь Loopy тал дээр буцаах аргагүй үйлдэл тул админ жагсаалтыг
+   * хараад шийдэх ёстой.
+   */
+  async allowlistDiff(): Promise<{
+    extras: string[];
+    missing: string[];
+    loopyTotal: number;
+    winfitTotal: number;
+  }> {
+    const allowed = await this.client.listAllowedPhones();
+    const eligible = await this.members.find({
+      where: { status: Not(In([MemberStatus.CANCELLED])) },
+      select: { phone: true },
+    });
+    const inWinfit = new Set(eligible.map((m) => m.phone));
+    const inLoopy = new Set(allowed.map((a) => a.phone));
+    return {
+      extras: allowed.map((a) => a.phone).filter((p) => !inWinfit.has(p)),
+      missing: [...inWinfit].filter((p) => !inLoopy.has(p)),
+      loopyTotal: allowed.length,
+      winfitTotal: inWinfit.size,
+    };
+  }
+
+  /** Loopy-гийн жагсаалтаас илүү дугаарыг хасах дараалалд оруулна. */
+  async removeExtras(phones: string[]): Promise<number> {
+    if (!phones.length) return 0;
+    // Дараалалаар явуулна — хурдны хязгаар, дахин оролдлого автоматаар
+    // баригдана. Мөн `disallowPhone` дотор эзэмшлийн шалгалт ажиллана:
+    // хэрэв тэр дугаар идэвхтэй гишүүнийх бол АЛГАСНА.
+    await this.outbox.enqueue(
+      phones.map((phone) => ({
+        topic: LOYALTY_TOPICS.DISALLOW_PHONE,
+        payload: { phone },
+        // Дугаар тус бүр өөрийн бүлэгт — хоорондоо хамааралгүй.
+        groupKey: `loopy:phone:${phone}`,
+      })),
+    );
+    return phones.length;
+  }
+
   async run(): Promise<ReconcileResult> {
     const empty: ReconcileResult = {
       ran: false,
       allowAdded: 0,
       allowExtra: 0,
+      allowRemoved: 0,
       cardsScanned: 0,
       linked: 0,
       expiryFixed: 0,
@@ -104,6 +153,7 @@ export class ReconcileService {
       ran: true,
       allowAdded: 0,
       allowExtra: 0,
+      allowRemoved: 0,
       cardsScanned: 0,
       linked: 0,
       expiryFixed: 0,
@@ -152,12 +202,36 @@ export class ReconcileService {
           { loopyAllowedAt: new Date() },
         );
       }
-      res.allowExtra = allowed.filter((a) => !inWinfit.has(a.phone)).length;
-      if (res.allowExtra) {
-        this.log.warn(
-          `Loopy жагсаалтад WinFit-д байхгүй ${res.allowExtra} дугаар байна — ` +
-            'автоматаар хасаагүй',
-        );
+      const extras = allowed
+        .map((a) => a.phone)
+        .filter((phone) => !inWinfit.has(phone));
+      res.allowExtra = extras.length;
+
+      if (extras.length) {
+        // ★ ЯАГААД АНХДАГЧААР УСТГАХГҮЙ ВЭ
+        //
+        // Loopy-гийн жагсаалт нь ЗӨВХӨН WinFit-ийнх байх албагүй: нэг
+        // программыг Loopy-гийн өөрийн дэлгэц, өөр интеграц, эсвэл
+        // гараар нэмсэн дугаар хуваалцаж болно. Шөнийн ажил тэдгээрийг
+        // чимээгүй устгавал буцаах арга байхгүй — дугаар бүрийг дахин
+        // нэмэх шаардлагатай болно.
+        //
+        // Тиймээс анхдагчаар зөвхөн МЭДЭЭЛНЭ. Админ /sync дэлгэцээс юу
+        // устгахыг ХАРААД баталгаажуулна. Бүрэн автомат болгохыг хүсвэл
+        // `loopy_allowlist_autoclean` тохиргоог асаана.
+        const auto = await this.settings.get('loopy_allowlist_autoclean');
+        if (auto) {
+          await this.removeExtras(extras);
+          res.allowRemoved = extras.length;
+          this.log.warn(
+            `Loopy жагсаалтаас ${extras.length} илүү дугаар хасах дараалалд орлоо`,
+          );
+        } else {
+          this.log.warn(
+            `Loopy жагсаалтад WinFit-д байхгүй ${extras.length} дугаар байна — ` +
+              'автоматаар хасаагүй (loopy_allowlist_autoclean унтраалттай)',
+          );
+        }
       }
     } catch (e) {
       res.errors.push(
