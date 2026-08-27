@@ -15,6 +15,7 @@ import {
   MemberStatus,
 } from '../../common/enums/member-status.enum';
 import { AuditService } from '../audit/audit.service';
+import { maskName } from '../../common/utils/phone.util';
 import { Member } from '../member/member.entity';
 import { MembershipService } from '../membership/membership.service';
 import { Package } from '../package/package.entity';
@@ -333,8 +334,15 @@ export class InvoiceService {
     days: number;
     amount: number;
     expiresAt: Date;
+    memberName: string | null;
+    accessEndsAt: Date | null;
   }> {
     const row = await this.find(id);
+    const member = await this.members.findOne({
+      where: { id: row.memberId },
+      select: { id: true, name: true, accessEndsAt: true },
+    });
+
     return {
       status: row.status,
       paidAt: row.paidAt,
@@ -342,6 +350,16 @@ export class InvoiceService {
       days: row.days,
       amount: Number(row.amount),
       expiresAt: row.expiresAt,
+      // ⚠ ДАЛДАЛСАН нэр. Энэ эндпойнт НЭВТРЭЛТГҮЙ — нэхэмжлэхийн ID нь
+      // таамаглашгүй UUID хэдий ч бүтэн нэр буцаах нь `/pay`-ийн 1-р
+      // түвшний дүрэмтэй зөрчилдөнө (docs/01 §6.6).
+      memberName: member ? maskName(member.name) : null,
+      // Зөвхөн ТӨЛӨГДСӨН үед — төлөгдөөгүй нэхэмжлэх дээр «хэзээ хүртэл»
+      // гэдэг нь одоогийн эрхийг илчлэхээс өөр утгагүй.
+      accessEndsAt:
+        row.status === InvoiceStatus.PAID
+          ? (member?.accessEndsAt ?? null)
+          : null,
     };
   }
 
