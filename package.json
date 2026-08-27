@@ -22,6 +22,7 @@
     "seed:admin": "ts-node -r tsconfig-paths/register src/database/seeds/seed-admin.ts",
     "seed:sample": "ts-node -r tsconfig-paths/register src/database/seeds/seed-sample.ts",
     "seed:demo": "ts-node -r tsconfig-paths/register src/database/seeds/seed-demo.ts",
+    "find-device": "ts-node -r tsconfig-paths/register scripts/find-device.ts",
     "probe": "ts-node -r tsconfig-paths/register scripts/probe-device.ts"
   },
   "dependencies": {
