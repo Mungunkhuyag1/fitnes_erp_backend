@@ -13,7 +13,12 @@ import { pageResult, type PageResult } from '../../common/dto/paginated';
 import { MemberStatus } from '../../common/enums/member-status.enum';
 import { endOfLocalDay } from '../../common/utils/date.util';
 import { AuditService } from '../audit/audit.service';
+import {
+  LOYALTY_TOPICS,
+  loyaltyGroup,
+} from '../loyalty/loyalty-sync.service';
 import { Member } from '../member/member.entity';
+import { OutboxService } from '../outbox/outbox.service';
 import { SettingsService } from '../settings/settings.service';
 import {
   LockerAssignment,
@@ -42,6 +47,7 @@ export class LockerService {
     private readonly audit: AuditService,
     private readonly config: ConfigService,
     private readonly settings: SettingsService,
+    private readonly outbox: OutboxService,
   ) {}
 
   private get tz(): string {
@@ -319,9 +325,70 @@ export class LockerService {
     return pageResult(rows, total, q);
   }
 
+  /**
+   * Түлхүүр буцаагаагүй гишүүнд ГАРААР Wallet сануулга илгээх.
+   *
+   * ЯАГААД ГАРААР ВЭ: «буцаагаагүй» гэдэг өгөгдөл нь гишүүн түлхүүрээ
+   * аваад явсныг БАТАЛДАГГҮЙ — ресепшн буцаалтыг бүртгээгүй ч байж
+   * болно (ялангуяа хаалтын цагт). Автоматаар илгээвэл түлхүүрээ
+   * өгчихсөн хүн буруутгагдаж, мэдэгдлийн итгэл унана.
+   *
+   * Тиймээс ажилтан самбараа хараад, ҮНЭХЭЭР гишүүн дээр байгаа гэдгийг
+   * мэдсэн үедээ дарна.
+   */
+  async remind(
+    assignmentId: string,
+    user: AuthUser,
+  ): Promise<{ queued: boolean; reason?: string }> {
+    const a = await this.assignments.findOne({ where: { id: assignmentId } });
+    if (!a) throw new NotFoundException('Олголт олдсонгүй');
+    if (a.returnedAt) {
+      throw new BadRequestException('Түлхүүр аль хэдийн буцаагдсан');
+    }
+
+    const member = await this.members.findOne({ where: { id: a.memberId } });
+    if (!member) throw new NotFoundException('Гишүүн олдсонгүй');
+    if (!member.loopyCardSerial) {
+      // Картгүй бол push хүрэх газар байхгүй — залгах хэрэгтэй.
+      return { queued: false, reason: 'Гишүүн Wallet карттай биш — залгана уу' };
+    }
+
+    const where = `${a.lockerZone} №${a.lockerNumber}`;
+    await this.outbox.enqueue({
+      topic: LOYALTY_TOPICS.PUSH,
+      payload: {
+        memberId: member.id,
+        message: `${where} шүүгээний түлхүүр буцаагдаагүй байна. Ресепшнд хүлээлгэн өгнө үү.`,
+      },
+      groupKey: loyaltyGroup(member.id),
+    });
+
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'locker.remind',
+      entity: 'member',
+      entityId: member.id,
+      after: { locker: where, assignmentId: a.id, type: a.type },
+    });
+    return { queued: true };
+  }
+
   async listAssignments(q: ListAssignmentsDto): Promise<PageResult<unknown>> {
     const qb = this.assignments.createQueryBuilder('a');
     if (q.memberId) qb.andWhere('a.member_id = :m', { m: q.memberId });
+    if (q.q?.trim()) {
+      // Гишүүний нэр/утсаар. ДЭД АСУУЛГААР — `leftJoin` + `addSelect` нь
+      // `getManyAndCount()`-ыг эвдэж хуудаслалт буруу болгодог.
+      const term = q.q.trim();
+      const digits = term.replace(/\D/g, '');
+      qb.andWhere(
+        `a.member_id IN (
+           SELECT id FROM members
+           WHERE name ILIKE :like ${digits.length >= 2 ? 'OR phone LIKE :digits' : ''}
+         )`,
+        { like: `%${term}%`, digits: `%${digits}%` },
+      );
+    }
     if (q.zone) qb.andWhere('a.locker_zone = :z', { z: LockerService.zoneKey(q.zone) });
     if (q.type) qb.andWhere('a.type = :t', { t: q.type });
     if (q.outstanding !== undefined) {

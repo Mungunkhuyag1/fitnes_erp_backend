@@ -94,6 +94,22 @@ export class LockerController {
     return this.lockers.listAssignments(q);
   }
 
+  /**
+   * Түлхүүр буцаагаагүй гишүүнд ГАРААР сануулга илгээх.
+   *
+   * Автоматаар БИШ: «буцаагаагүй» өгөгдөл нь ресепшн бүртгээгүйгээс ч
+   * үүсдэг тул ажилтан баталсан үедээ л дарна.
+   */
+  @Roles(Role.MANAGER)
+  @Post('locker-assignments/:id/remind')
+  @ApiOperation({ summary: 'Түлхүүр буцаах сануулга илгээх' })
+  remind(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.lockers.remind(id, user);
+  }
+
   @Get('members/:id/lockers')
   @ApiOperation({ summary: 'Гишүүний шүүгээний түүх' })
   byMember(

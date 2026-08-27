@@ -23,6 +23,25 @@ export const LOYALTY_TOPICS = {
   PUSH: 'loopy.push',
 } as const;
 
+/**
+ * Картын «сүүлийн үйлдэл» гэсэн тэмдэглэл — Wallet-ийн ТҮГЖЭЭТЭЙ ДЭЛГЭЦЭД
+ * гарах мэдэгдлийн бие болно.
+ *
+ * ⚠ Loopy нь үүнийг `«<программын нэр>: %@»` хэлбэрээр угсардаг
+ * (`apple-wallet.service.ts`). Тиймээс энд «WinFit» гэж ДАВТАЖ БОЛОХГҮЙ —
+ * өмнө нь `WinFit: WinFit — 2026-10-10` гэсэн утгагүй бичиг гардаг байв.
+ *
+ * Мөн хүн уншихаар БҮТЭН ӨГҮҮЛБЭР байх ёстой: `active`, `expired` гэсэн
+ * системийн код гишүүнд юу ч хэлэхгүй.
+ */
+const STATUS_NOTE: Record<string, string> = {
+  [MemberStatus.ACTIVE]: 'Эрх идэвхтэй боллоо',
+  [MemberStatus.EXPIRED]: 'Эрхийн хугацаа дууслаа. Картаа нээж сунгана уу',
+  [MemberStatus.SUSPENDED]: 'Эрх түр зогслоо. Ресепшнд хандана уу',
+  [MemberStatus.CANCELLED]: 'Эрх хаагдлаа. Ресепшнд хандана уу',
+  [MemberStatus.LEAD]: 'Гишүүнчлэл эхлээгүй байна',
+};
+
 /** Гишүүн бүрийн Loopy үйлдлийг дарааллаар барих түлхүүр. */
 export const loyaltyGroup = (memberId: string): string => `loopy:${memberId}`;
 
@@ -91,7 +110,9 @@ export class LoyaltySyncService implements OnModuleInit {
         const res = await this.client.extendCard(
           serial,
           m.accessEndsAt,
-          `WinFit — ${m.accessEndsAt ? fmtDate(m.accessEndsAt, this.tz) : 'хугацаагүй'}`,
+          m.accessEndsAt
+            ? `Эрх ${fmtDate(m.accessEndsAt, this.tz)} хүртэл сунгагдлаа`
+            : 'Эрх хугацаагүй боллоо',
         );
         if (res.changed) {
           this.log.log(
@@ -110,7 +131,7 @@ export class LoyaltySyncService implements OnModuleInit {
         await this.client.setCardStatus(
           serial,
           revoked ? 'revoked' : 'active',
-          `WinFit: ${m.status}`,
+          STATUS_NOTE[m.status] ?? 'Эрхийн төлөв өөрчлөгдлөө',
         );
       }),
     );
@@ -179,9 +200,10 @@ export class LoyaltySyncService implements OnModuleInit {
       fields.push({
         key: 'winfitLocker',
         label: 'Шүүгээ',
+        // Бусад дэлгэцтэй ижил бичиглэл: «Эрэгтэй №3».
         value: rental.dueAt
-          ? `${rental.lockerZone}${rental.lockerNumber} · ${fmtDate(rental.dueAt, this.tz)} хүртэл`
-          : `${rental.lockerZone}${rental.lockerNumber}`,
+          ? `${rental.lockerZone} №${rental.lockerNumber} · ${fmtDate(rental.dueAt, this.tz)} хүртэл`
+          : `${rental.lockerZone} №${rental.lockerNumber}`,
       });
     }
     return fields;

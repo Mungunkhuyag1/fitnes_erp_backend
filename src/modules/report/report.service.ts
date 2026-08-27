@@ -114,6 +114,14 @@ export class ReportService {
           WHERE returned_at IS NULL AND due_at IS NOT NULL
             AND due_at >= now() AND due_at < now() + interval '7 days')
           AS lockers_expiring,
+        -- Удаан буцаагдаагүй ӨДРИЙН түлхүүр.
+        --
+        -- ⚠ Хаалтын цагийн тохиргоо БАЙХГҮЙ тул «хаалтаар буцаагаагүй»
+        -- гэж мэдэх боломжгүй. 6 цаг нь ойролцоо хэмжүүр: ердийн
+        -- дасгалын хугацаанаас хамаагүй урт.
+        (SELECT count(*) FROM locker_assignments
+          WHERE returned_at IS NULL AND type = 'daily'
+            AND issued_at < now() - interval '6 hours') AS daily_stale,
 
         -- Өнөөдрийн орлого, эх сурвалжаар
         (SELECT coalesce(sum(amount),0) FROM memberships, today
@@ -155,6 +163,7 @@ export class ReportService {
         keysOut: n('keys_out'),
         overdueRentals: n('lockers_overdue'),
         expiringRentals: n('lockers_expiring'),
+        staleDaily: n('daily_stale'),
       },
       revenueToday: {
         cash: n('rev_cash'),

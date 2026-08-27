@@ -170,18 +170,32 @@ export class ReminderService {
     }
   }
 
+  /**
+   * Түгжээтэй дэлгэцэд гарах бичиг.
+   *
+   * ⚠ Энэ нь `pushMessage` тул Loopy угтвар НЭМЭХГҮЙ (`changeMessage: '%@'`)
+   * — бүтэн, эелдэг өгүүлбэр байх ёстой. Мөн ЮУ ХИЙХИЙГ хэлнэ: зөвхөн
+   * «дуусна» гэвэл гишүүн хаашаа хандахаа мэдэхгүй.
+   */
   private message(c: Candidate): string {
     if (c.kind === ReminderKind.LOCKER) {
       const l = c.lockerLabel ? `${c.lockerLabel} шүүгээний` : 'Шүүгээний';
-      if (c.daysLeft <= 0) return `${l} түрээс өнөөдөр дуусаж байна.`;
-      if (c.daysLeft === 1) {
-        return `${l} түрээс маргааш дуусна. Ресепшнд хандана уу.`;
+      if (c.daysLeft <= 0) {
+        return `${l} түрээсийн хугацаа өнөөдөр дуусаж байна. Сунгах бол ресепшнд хандана уу.`;
       }
-      return `${l} түрээс ${c.daysLeft} хоногийн дараа дуусна. Ресепшнд хандана уу.`;
+      if (c.daysLeft === 1) {
+        return `${l} түрээсийн хугацаа маргааш дуусна. Сунгах бол ресепшнд хандана уу.`;
+      }
+      return `${l} түрээсийн хугацаа ${c.daysLeft} хоногийн дараа дуусна. Сунгах бол ресепшнд хандана уу.`;
     }
-    if (c.daysLeft <= 0) return 'Таны гишүүнчлэлийн хугацаа өнөөдөр дуусаж байна.';
-    if (c.daysLeft === 1) return 'Таны эрх маргааш дуусна. Картаа нээж сунгана уу.';
-    return `Таны эрх ${c.daysLeft} хоногийн дараа дуусна. Картаа нээж сунгана уу.`;
+
+    if (c.daysLeft <= 0) {
+      return 'Таны гишүүнчлэлийн хугацаа өнөөдөр дуусаж байна. Картаа нээж сунгаарай.';
+    }
+    if (c.daysLeft === 1) {
+      return 'Таны гишүүнчлэл маргааш дуусна. Картаа нээж сунгаарай.';
+    }
+    return `Таны гишүүнчлэл ${c.daysLeft} хоногийн дараа дуусна. Картаа нээж сунгаарай.`;
   }
 
   /**
@@ -236,7 +250,7 @@ export class ReminderService {
         hasCard: !!m.loopyCardSerial,
         kind: ReminderKind.LOCKER,
         cycleId: a.id,
-        lockerLabel: `${a.lockerZone}${a.lockerNumber}`,
+        lockerLabel: `${a.lockerZone} №${a.lockerNumber}`,
       });
     }
     return out;

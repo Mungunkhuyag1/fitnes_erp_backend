@@ -17,6 +17,7 @@ import {
 import { Member } from '../../modules/member/member.entity';
 import { Membership } from '../../modules/membership/membership.entity';
 import { Package } from '../../modules/package/package.entity';
+import { SETTING_DEFAULTS } from '../../modules/settings/settings.service';
 import { AppDataSource } from '../data-source';
 
 /**
@@ -72,7 +73,8 @@ interface Spec {
   /** Wallet карт: `null` = Loopy-д бүртгүүлээгүй. */
   card: null | { devices: number };
   face: boolean;
-  locker?: { zone: string; number: number; type: LockerAssignmentType };
+  /** Бүсийн ИНДЕКС — нэрийг `SETTING_DEFAULTS.locker_zones`-оос авна. */
+  locker?: { zone: number; number: number; type: LockerAssignmentType };
   /** Хугацаа дууссаны дараа орох гэж оролдсон эсэх. */
   deniedTries?: number;
   pendingInvoice?: number;
@@ -88,7 +90,7 @@ const SPECS: Spec[] = [
       { pkg: 1, boughtDaysAgo: 65, source: MembershipSource.BONUM },
     ],
     card: { devices: 2 }, face: true,
-    locker: { zone: 'A', number: 3, type: LockerAssignmentType.RENTAL },
+    locker: { zone: 0, number: 3, type: LockerAssignmentType.RENTAL },
   },
   {
     name: 'Оюунчимэг Ганбат',
@@ -96,7 +98,7 @@ const SPECS: Spec[] = [
     status: MemberStatus.ACTIVE,
     purchases: [{ pkg: 0, boughtDaysAgo: 12, source: MembershipSource.CASH }],
     card: { devices: 1 }, face: true,
-    locker: { zone: 'B', number: 2, type: LockerAssignmentType.DAILY },
+    locker: { zone: 1, number: 2, type: LockerAssignmentType.DAILY },
   },
   {
     name: 'Тэмүүлэн Баяр',
@@ -105,7 +107,7 @@ const SPECS: Spec[] = [
     status: MemberStatus.ACTIVE,
     purchases: [{ pkg: 3, boughtDaysAgo: 40, source: MembershipSource.BONUM }],
     card: { devices: 1 }, face: true,
-    locker: { zone: 'A', number: 7, type: LockerAssignmentType.RENTAL },
+    locker: { zone: 0, number: 7, type: LockerAssignmentType.RENTAL },
   },
   {
     name: 'Сарантуяа Пүрэв',
@@ -220,18 +222,22 @@ async function main(): Promise<void> {
   }
 
   // ── Шүүгээ (A бүс 10, B бүс 6) ──
+  // ⚠ Бүсийн нэр нь ТОХИРГООНООС ирнэ. Дурын нэр (`A`, `B`) өгвөл
+  // самбар нь тохируулсан өрөөнүүдээр шүүдэг тул шүүгээ ОГТ ХАРАГДАХГҮЙ.
+  const ZONES = SETTING_DEFAULTS.locker_zones;
   const lockerRepo = ds.getRepository(Locker);
   const lockers = await lockerRepo.save([
     ...Array.from({ length: 10 }, (_, i) =>
-      lockerRepo.create({ zone: 'A', number: i + 1, active: true }),
+      lockerRepo.create({ zone: ZONES[0], number: i + 1, active: true }),
     ),
     ...Array.from({ length: 6 }, (_, i) =>
-      lockerRepo.create({ zone: 'B', number: i + 1, active: true }),
+      lockerRepo.create({ zone: ZONES[1], number: i + 1, active: true }),
     ),
   ]);
-  const lockerOf = (zone: string, number: number) => {
+  const lockerOf = (zoneIdx: number, number: number) => {
+    const zone = ZONES[zoneIdx];
     const l = lockers.find((x) => x.zone === zone && x.number === number);
-    if (!l) throw new Error(`Шүүгээ олдсонгүй: ${zone}${number}`);
+    if (!l) throw new Error(`Шүүгээ олдсонгүй: ${zone} №${number}`);
     return l;
   };
 

@@ -122,6 +122,12 @@ export class ListLockersDto extends PageQueryDto {
 }
 
 export class ListAssignmentsDto extends PageQueryDto {
+  @ApiPropertyOptional({ description: 'Гишүүний нэр эсвэл утсаар хайх' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  q?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
