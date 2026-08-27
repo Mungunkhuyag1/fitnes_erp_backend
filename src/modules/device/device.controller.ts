@@ -4,6 +4,7 @@ import { CurrentUser, type AuthUser } from '../../common/decorators/current-user
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
 import { AuditService } from '../audit/audit.service';
+import { DeviceDiagnosticsService } from './device-diagnostics.service';
 import { DeviceService } from './device.service';
 
 @ApiTags('devices')
@@ -13,6 +14,7 @@ export class DeviceController {
   constructor(
     private readonly devices: DeviceService,
     private readonly audit: AuditService,
+    private readonly diag: DeviceDiagnosticsService,
   ) {}
 
   @Get()
@@ -37,6 +39,27 @@ export class DeviceController {
   @ApiOperation({ summary: 'Терминалтай холбогдож үзэх' })
   ping() {
     return this.devices.ping();
+  }
+
+  /**
+   * ISAPI оношилгоо — БҮХ уншилтын дуудлагыг дараалан хийж, түүхий
+   * хариуг буцаана. Мөн сервер дээр `probe/` хавтсанд хадгална.
+   *
+   * ⚠ Зөвхөн УНШИНА. Оношилгоо нь терминалын төлөвийг өөрчлөх ёсгүй.
+   */
+  @Roles(Role.MANAGER)
+  @Get('diagnose')
+  @ApiOperation({ summary: 'Терминалын ISAPI оношилгоо' })
+  @ApiQuery({ name: 'employeeNo', required: false })
+  @ApiQuery({ name: 'eventHours', required: false })
+  diagnose(
+    @Query('employeeNo') employeeNo?: string,
+    @Query('eventHours') eventHours?: string,
+  ) {
+    return this.diag.run({
+      employeeNo: employeeNo ? Number(employeeNo) : undefined,
+      eventHours: eventHours ? Number(eventHours) : undefined,
+    });
   }
 
   @Roles(Role.MANAGER)

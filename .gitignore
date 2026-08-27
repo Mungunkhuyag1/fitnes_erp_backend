@@ -9,3 +9,7 @@ dist/
 *.log
 .DS_Store
 probe-*.json
+
+# Терминалын оношилгооны түүхий хариу — газар дээр үүсдэг
+probe/
+probe-*.json
