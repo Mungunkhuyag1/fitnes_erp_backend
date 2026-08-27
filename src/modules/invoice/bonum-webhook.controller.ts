@@ -77,18 +77,20 @@ export class BonumWebhookController {
       throw new UnauthorizedException('webhook secret буруу');
     }
 
-    const checksum = header('x-checksum-v2');
-    const checksumKey = this.config.get<string>('bonum.checksumKey');
-    if (checksumKey && checksum) {
-      if (!this.bonum.verifyChecksum(raw, checksum)) {
-        this.log.warn('Bonum webhook: checksum таарсангүй');
-        throw new BadRequestException('checksum буруу');
-      }
-    } else if (checksumKey) {
-      // Түлхүүр тохируулсан ч header ирээгүй — Bonum portal-д checksum
-      // унтраалттай байж болно. Логлож үргэлжлүүлнэ (secret нь шалгагдсан).
-      this.log.warn('Bonum webhook: x-checksum-v2 header ирсэнгүй');
-    }
+
+    //TODO: daraa n production butsaana
+    // const checksum = header('x-checksum-v2');
+    // const checksumKey = this.config.get<string>('bonum.checksumKey');
+    // if (checksumKey && checksum) {
+    //   if (!this.bonum.verifyChecksum(raw, checksum)) {
+    //     this.log.warn('Bonum webhook: checksum таарсангүй');
+    //     throw new BadRequestException('checksum буруу');
+    //   }
+    // } else if (checksumKey) {
+    //   // Түлхүүр тохируулсан ч header ирээгүй — Bonum portal-д checksum
+    //   // унтраалттай байж болно. Логлож үргэлжлүүлнэ (secret нь шалгагдсан).
+    //   this.log.warn('Bonum webhook: x-checksum-v2 header ирсэнгүй');
+    // }
 
     let payload: Loose;
     try {
