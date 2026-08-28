@@ -78,6 +78,14 @@ export const configuration = () => ({
     backoffSec: process.env.OUTBOX_BACKOFF_SEC ?? '60,300,1800,7200,21600',
     batchSize: toInt(process.env.OUTBOX_BATCH_SIZE, 10),
     intervalMs: toInt(process.env.OUTBOX_INTERVAL_MS, 15_000),
+    /**
+     * `done` мөрийг хэдэн хоног хадгалах вэ.
+     *
+     * Outbox нь ДАРААЛАЛ — түүхийн бүртгэл БИШ. 14 хоног нь алдаа
+     * мөшгихөд хангалттай, цааш нь дэмий жин (5 жилд ~780 MB) бөгөөд
+     * `SKIP LOCKED` сканнерыг удаашруулна.
+     */
+    retentionDays: toInt(process.env.OUTBOX_RETENTION_DAYS, 14),
   },
 
   loopy: {

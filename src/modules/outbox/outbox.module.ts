@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { OutboxController } from './outbox.controller';
 import { OutboxMessage } from './outbox.entity';
 import { OutboxRegistry } from './outbox.registry';
+import { OutboxRetentionService } from './outbox-retention.service';
 import { OutboxService } from './outbox.service';
 import { OutboxSignal } from './outbox.signal';
 import { OutboxWorker } from './outbox.worker';
@@ -11,7 +12,8 @@ import { OutboxWorker } from './outbox.worker';
 @Module({
   imports: [TypeOrmModule.forFeature([OutboxMessage])],
   controllers: [OutboxController],
-  providers: [OutboxService, OutboxRegistry, OutboxSignal, OutboxWorker],
+  providers: [
+    OutboxRetentionService,OutboxService, OutboxRegistry, OutboxSignal, OutboxWorker],
   exports: [OutboxService, OutboxRegistry],
 })
 export class OutboxModule {}

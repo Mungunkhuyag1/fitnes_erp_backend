@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StaffUser } from '../staff/staff-user.entity';
 import { AuthController } from './auth.controller';
+import { TokenRetentionService } from './token-retention.service';
 import { AuthService } from './auth.service';
 import { RefreshToken } from './refresh-token.entity';
 
@@ -17,7 +18,8 @@ import { RefreshToken } from './refresh-token.entity';
     JwtModule.register({}),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [
+    TokenRetentionService,AuthService],
   exports: [AuthService, JwtModule, TypeOrmModule],
 })
 export class AuthModule {}

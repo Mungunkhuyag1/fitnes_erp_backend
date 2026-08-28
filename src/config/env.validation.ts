@@ -123,6 +123,8 @@ export const envValidationSchema = Joi.object({
   HIK_HTTPS: Joi.string().valid('true', 'false').default('false'),
 
   // ── Hikvision ──
+  OUTBOX_RETENTION_DAYS: Joi.number().min(1).max(365).default(14),
+
   HIK_PLAN_TEMPLATE_NO: Joi.string().default('1'),
   HIK_DOOR_NO: Joi.number().default(1),
 
