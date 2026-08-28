@@ -71,4 +71,24 @@ export class Invoice {
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+
+  /**
+   * Эрх нээхийн өмнө ажилтан баримт шалгах ёстой эсэх.
+   *
+   * `packages.requires_proof`-оос нэхэмжлэх үүсэх агшинд ХУУЛБАРЛАГДАНА.
+   * Хуулбарладаг шалтгаан нь `days`/`amount`-той ижил: багцын тохиргоо
+   * дараа өөрчлөгдвөл аль хэдийн төлөгдсөн нэхэмжлэх хөндөгдөх ёсгүй.
+   */
+  @Column({ name: 'needs_approval', type: 'boolean', default: false })
+  needsApproval: boolean;
+
+  @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
+  approvedAt: Date | null;
+
+  @Column({ name: 'approved_by', type: 'uuid', nullable: true })
+  approvedBy: string | null;
+
+  @Column({ name: 'approval_note', type: 'varchar', length: 300, nullable: true })
+  approvalNote: string | null;
+
 }

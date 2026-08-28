@@ -48,6 +48,19 @@ export class InvoiceController {
     return this.bonum.ping(force === 'true');
   }
 
+  /**
+   * Баталгаажуулалт хүлээж буй төлбөрүүд.
+   *
+   * Хөнгөлөлттэй багц онлайнаар төлөгдсөн ч эрх нь нээгдээгүй байна —
+   * хэрэглэгч ресепшн дээр үнэмлэхээ үзүүлэх ёстой. Энэ жагсаалт нь
+   * ажилтанд «хэн ирэх ёстой вэ» гэдгийг хэлнэ.
+   */
+  @Get('awaiting-approval')
+  @ApiOperation({ summary: 'Баримт шалгуулахаар хүлээж буй төлбөр' })
+  awaiting() {
+    return this.invoices.awaitingApproval();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Нэхэмжлэхийн мэдээлэл' })
   get(@Param('id', ParseUUIDPipe) id: string) {
@@ -90,4 +103,16 @@ export class InvoiceController {
       { staffUserId: user.id, ip: req.ip },
     );
   }
+  /** Баримт шалгаж эрхийг нээх. */
+  @Roles(Role.RECEPTION)
+  @Post(':id/approve')
+  @ApiOperation({ summary: 'Баримт шалгаж эрхийг нээх' })
+  approve(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { note?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.invoices.approve(id, user.id, body.note);
+  }
+
 }

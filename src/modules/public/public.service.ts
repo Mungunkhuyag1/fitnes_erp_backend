@@ -17,6 +17,7 @@ import {
 } from '../../common/utils/phone.util';
 import { InvoiceService } from '../invoice/invoice.service';
 import { Member } from '../member/member.entity';
+import { AUDIENCE_LABEL } from '../../common/enums/audience.enum';
 import { Package } from '../package/package.entity';
 import { SettingsService } from '../settings/settings.service';
 
@@ -48,10 +49,16 @@ export class PublicService {
     return this.config.get<string>('timezone') ?? 'Asia/Ulaanbaatar';
   }
 
-  /** Идэвхтэй багцууд — хоёр түвшинд ижил. */
+  /**
+   * Онлайнаар зарагдах багцууд.
+   *
+   * ⚠ `online: true` шүүлтүүр ЗААВАЛ: хосын багц нь хоёр гишүүнийг
+   * зэрэг сонгохыг шаарддаг тул онлайн урсгалд тохирохгүй. Шүүхгүй бол
+   * хэрэглэгч 1,100,000₮ төлчихөөд нөгөө хүнээ заах газаргүй үлдэнэ.
+   */
   async listPackages() {
     const rows = await this.packages.find({
-      where: { active: true },
+      where: { active: true, online: true },
       order: { sortOrder: 'ASC', price: 'ASC' },
     });
     return {
@@ -61,6 +68,11 @@ export class PublicService {
         name: p.name,
         days: p.days,
         price: Number(p.price),
+        audience: p.audience,
+        audienceLabel: AUDIENCE_LABEL[p.audience] ?? p.audience,
+        // Дэлгэц эдгээрийг бүлэглэх, анхааруулах, тэмдэглэхэд ашиглана.
+        requiresProof: p.requiresProof,
+        firstTimeOnly: p.firstTimeOnly,
       })),
     };
   }

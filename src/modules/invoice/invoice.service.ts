@@ -112,6 +112,9 @@ export class InvoiceService {
         memberId: member.id,
         packageId: pkg.id,
         packageName: pkg.name,
+        // Багцын тохиргоог ХУУЛБАРЛАНА — дараа өөрчлөгдвөл аль хэдийн
+        // төлөгдсөн нэхэмжлэх хөндөгдөх ёсгүй (`days`/`amount`-тай ижил).
+        needsApproval: pkg.requiresProof,
         days: pkg.days,
         amount: pkg.price,
         status: InvoiceStatus.PENDING,
@@ -167,6 +170,99 @@ export class InvoiceService {
    * `paid` бол юу ч хийхгүй `already` буцаана. Сунгалт нь мөн
    * `idempotencyKey = invoice:<id>`-тэй тул давхар сунгах боломжгүй.
    */
+  /**
+   * Баримт шалгаж эрхийг ГАРААР нээх.
+   *
+   * ⚠ Эрхийн хугацаа ЭНЭ агшнаас эхэлнэ, төлсөн агшнаас биш. Гишүүн
+   * ресепшн хүртэл ирэх хугацаанд хоногоо алдах ёсгүй.
+   *
+   * ⚠ Идемпотент: `idempotencyKey` нь нэхэмжлэхээр тогтдог тул хоёр
+   * ажилтан зэрэг батлахад хоёр удаа сунгахгүй.
+   */
+  async approve(
+    invoiceId: string,
+    staffUserId: string,
+    note?: string,
+  ): Promise<{ ok: true; already?: boolean }> {
+    const invoice = await this.repo.findOne({ where: { id: invoiceId } });
+    if (!invoice) throw new NotFoundException('Нэхэмжлэх олдсонгүй');
+    if (!invoice.needsApproval) {
+      throw new BadRequestException('Энэ нэхэмжлэх баталгаажуулалт шаардахгүй');
+    }
+    if (invoice.status !== InvoiceStatus.PAID) {
+      throw new BadRequestException('Төлөгдөөгүй нэхэмжлэхийг батлах боломжгүй');
+    }
+    if (invoice.approvedAt) return { ok: true as const, already: true };
+
+    invoice.approvedAt = new Date();
+    invoice.approvedBy = staffUserId;
+    invoice.approvalNote = note?.trim() || null;
+    await this.repo.save(invoice);
+
+    await this.memberships.extend({
+      memberId: invoice.memberId,
+      packageId: invoice.packageId,
+      amount: Number(invoice.amount),
+      source: MembershipSource.BONUM,
+      invoiceId: invoice.id,
+      idempotencyKey: `invoice:${invoice.id}`,
+    });
+
+    await this.audit.record({
+      staffUserId,
+      action: 'invoice.approve',
+      entity: 'invoice',
+      entityId: invoice.id,
+      after: {
+        packageName: invoice.packageName,
+        amount: Number(invoice.amount),
+        note: invoice.approvalNote,
+      },
+    });
+    this.log.log(`Эрх батлагдав: ${invoice.packageName} — ${invoice.memberId}`);
+    return { ok: true as const };
+  }
+
+  /** Төлөгдсөн ч батлагдаагүй нэхэмжлэхүүд — ажилтны дэлгэцэд. */
+  async awaitingApproval(): Promise<
+    Array<{
+      id: string;
+      memberId: string;
+      memberName: string | null;
+      memberNo: number | null;
+      packageName: string;
+      amount: number;
+      paidAt: Date | null;
+    }>
+  > {
+    const rows = await this.repo
+      .createQueryBuilder('i')
+      .leftJoin('members', 'm', 'm.id = i.member_id')
+      .select([
+        'i.id AS id',
+        'i.member_id AS "memberId"',
+        'i.package_name AS "packageName"',
+        'i.amount AS amount',
+        'i.paid_at AS "paidAt"',
+        'm.name AS "memberName"',
+        'm.member_no AS "memberNo"',
+      ])
+      .where('i.needs_approval = true')
+      .andWhere('i.approved_at IS NULL')
+      .andWhere('i.status = :s', { s: InvoiceStatus.PAID })
+      .orderBy('i.paid_at', 'ASC')
+      .getRawMany<{
+        id: string;
+        memberId: string;
+        memberName: string | null;
+        memberNo: number | null;
+        packageName: string;
+        amount: string;
+        paidAt: Date | null;
+      }>();
+    return rows.map((r) => ({ ...r, amount: Number(r.amount) }));
+  }
+
   async markPaid(
     ref: { transactionId?: string; providerInvoiceId?: string },
     payload: Record<string, unknown> | null,
@@ -196,14 +292,25 @@ export class InvoiceService {
     await this.repo.save(invoice);
 
     // ★ Эрх сунгах — БҮХ төлбөрийн ганц гарц (docs/05 §4.1).
-    await this.memberships.extend({
-      memberId: invoice.memberId,
-      packageId: invoice.packageId,
-      amount: Number(invoice.amount),
-      source: MembershipSource.BONUM,
-      invoiceId: invoice.id,
-      idempotencyKey: `invoice:${invoice.id}`,
-    });
+    //
+    // ⚠ Баримт шалгах багц дээр ЭНД СУНГАХГҮЙ. Хэрэглэгч ресепшн дээр
+    // үнэмлэхээ үзүүлж, ажилтан баталсны дараа л гишүүнчлэл үүснэ
+    // (`approve()`). Хугацаа нь тэр агшнаас эхэлнэ — эс бөгөөс Баасан
+    // гарагт төлж Даваа гарагт ирсэн хүн 3 хоногоо алдана.
+    if (invoice.needsApproval) {
+      this.log.log(
+        `Баталгаажуулалт хүлээнэ: ${invoice.packageName} — гишүүн ${invoice.memberId}`,
+      );
+    } else {
+      await this.memberships.extend({
+        memberId: invoice.memberId,
+        packageId: invoice.packageId,
+        amount: Number(invoice.amount),
+        source: MembershipSource.BONUM,
+        invoiceId: invoice.id,
+        idempotencyKey: `invoice:${invoice.id}`,
+      });
+    }
 
     if (opts.staffUserId) {
       // Гараар батлах нь мөнгөтэй холбоотой гар ажиллагаа — аудитад.
@@ -336,6 +443,9 @@ export class InvoiceService {
     expiresAt: Date;
     memberName: string | null;
     accessEndsAt: Date | null;
+    /** Эрх нээхийн өмнө ресепшн дээр баримт шалгуулах ёстой эсэх. */
+    needsApproval: boolean;
+    approvedAt: Date | null;
   }> {
     const row = await this.find(id);
     const member = await this.members.findOne({
@@ -346,6 +456,11 @@ export class InvoiceService {
     return {
       status: row.status,
       paidAt: row.paidAt,
+      // ⚠ /pay/return хуудас эдгээрээр «эрх нээгдээгүй» гэдгийг ТОДОРХОЙ
+      // хэлнэ. Хэлэхгүй бол хэрэглэгч төлчихөөд юу ч болоогүйг хараад
+      // гомдоно — энэ бол урсгалын хамгийн эрсдэлтэй цэг.
+      needsApproval: row.needsApproval,
+      approvedAt: row.approvedAt,
       packageName: row.packageName,
       days: row.days,
       amount: Number(row.amount),
