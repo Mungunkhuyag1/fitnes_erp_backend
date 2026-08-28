@@ -50,6 +50,15 @@ export interface DeviceInfo {
   capacity?: Record<string, number>;
 }
 
+/** Терминал дээр бодитоор байгаа хэрэглэгчийн мөр — тулгалтад. */
+export interface DeviceUserRow {
+  employeeNo: number;
+  name: string;
+  begin: Date | null;
+  end: Date | null;
+  enable: boolean;
+}
+
 export interface DeviceGateway {
   /** Хэрэглэгч үүсгэх / шинэчлэх (идемпотент — `employeeNo` дээр upsert). */
   upsertUser(input: UpsertUserInput): Promise<void>;
@@ -59,6 +68,13 @@ export interface DeviceGateway {
 
   /** Хэрэглэгчийг устгах — царай нь хамт устана (зөвхөн цуцлах үед). */
   deleteUser(employeeNo: number): Promise<void>;
+
+  /**
+   * Терминал дээрх БҮХ хэрэглэгч — шөнийн тулгалтад.
+   *
+   * ⚠ ХҮНД дуудлага (хуудаслаж татна). Ойрхон давтахгүй.
+   */
+  listUsers(): Promise<DeviceUserRow[]>;
 
   /** Заасан хүмүүсийн царай бүртгэгдсэн эсэх. */
   faceStatus(employeeNos: number[]): Promise<Record<number, boolean>>;

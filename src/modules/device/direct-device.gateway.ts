@@ -13,8 +13,24 @@ import {
   type DeviceGateway,
   type DeviceInfo,
   type SetValidityInput,
+  type DeviceUserRow,
   type UpsertUserInput,
 } from './device.gateway';
+
+/**
+ * Терминалын `2026-04-25T23:59:59` хэлбэрийг ОРОН НУТГИЙН цагаар уншина.
+ *
+ * ⚠ `new Date(str)` нь бүсийн тэмдэггүй мөрийг орчноос хамааран UTC
+ * эсвэл local гэж уншдаг. Терминал `timeType: 'local'` гэж бичдэг тул
+ * заавал local гэж задлана — эс бөгөөс огноо 8 цагаар гулсаж, тулгалт
+ * бүх хэрэглэгчийг «зөрүүтэй» гэж буруу дуудна.
+ */
+function parseLocal(v: unknown): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(String(v ?? ''));
+  if (!m) return null;
+  const [, y, mo, d, h, mi, sec] = m.map(Number) as unknown as number[];
+  return new Date(y, mo - 1, d, h, mi, sec);
+}
 
 /**
  * Терминалтай ШУУД ярих gateway — backend нь терминалтай НЭГ LAN дотор.
@@ -155,6 +171,23 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
 
   async faceStatus(employeeNos: number[]): Promise<Record<number, boolean>> {
     return this.guard(() => this.api().faceStatus(employeeNos));
+  }
+
+  async listUsers(): Promise<DeviceUserRow[]> {
+    return this.guard(async () => {
+      const raw = await this.api().listUsers();
+      return raw.map((u) => {
+        const valid = (u.Valid ?? {}) as Record<string, unknown>;
+        return {
+          employeeNo: Number(u.employeeNo),
+          name: String(u.name ?? ''),
+          begin: parseLocal(valid.beginTime),
+          end: parseLocal(valid.endTime),
+          // Талбар байхгүй бол «идэвхтэй» гэж үзнэ — терминалын анхдагч.
+          enable: valid.enable !== false,
+        };
+      });
+    });
   }
 
   async openDoor(doorNo?: number): Promise<void> {

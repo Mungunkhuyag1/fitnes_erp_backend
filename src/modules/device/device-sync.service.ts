@@ -16,6 +16,13 @@ export const DEVICE_TOPICS = {
   USER_UPSERT: 'hik.userUpsert',
   SET_VALIDITY: 'hik.setValidity',
   USER_DELETE: 'hik.userDelete',
+  /**
+   * Терминал дээрх ХЭРЭГЛЭГЧИЙГ дугаараар нь устгах — WinFit-д
+   * тохирох гишүүнгүй үед (шөнийн тулгалтын `extras`).
+   *
+   * `USER_DELETE`-ээс ялгаатай нь гишүүнийг DB-ээс хайхгүй.
+   */
+  USER_DELETE_NO: 'hik.userDeleteNo',
 } as const;
 
 /** Гишүүн бүрийн командыг дараалалд барих түлхүүр. */
@@ -73,6 +80,15 @@ export class DeviceSyncService implements OnModuleInit {
     this.registry.register(DEVICE_TOPICS.USER_DELETE, (p) =>
       this.handle(p, (m) => this.device.deleteUser(m.memberNo)),
     );
+
+    this.registry.register(DEVICE_TOPICS.USER_DELETE_NO, async (p) => {
+      const no = Number(p.employeeNo);
+      if (!Number.isInteger(no) || no <= 0) {
+        throw new PermanentError('payload-д employeeNo алга');
+      }
+      await this.device.deleteUser(no);
+      this.log.log(`Терминалаас устгав: №${no} (WinFit-д гишүүнгүй)`);
+    });
   }
 
   /**
@@ -122,13 +138,28 @@ export class DeviceSyncService implements OnModuleInit {
    * цонхыг татгалзаж болзошгүй. Тэр тохиолдолд `enable=false` рүү шилжинэ.
    */
   private validity(m: Member): { begin: Date; end: Date; enable: boolean } {
-    const begin = m.createdAt;
-    const end = m.accessEndsAt ?? m.createdAt;
-    return {
-      begin,
-      end,
-      // Түр зогсоосон гишүүнд эрхийг унтраана (огноог нь хөндөхгүй).
-      enable: m.status !== MemberStatus.SUSPENDED,
-    };
+    return deviceValidity(m);
   }
+}
+
+/**
+ * Терминал дээр бичигдэх ЭРХИЙН ЦОНХ — ганц тодорхойлолт.
+ *
+ * ⚠ Тулгалт (`DeviceAuditService`) ЭНЭ функцийг заавал ашиглана.
+ * Өөрийн дүрэм зохиовол WinFit хэзээ ч бичихгүй утгыг «зөрүү» гэж
+ * дуудаж, шөнө бүр 300 гишүүнийг дэмий дахин бичих болно.
+ */
+export function deviceValidity(m: Member): {
+  begin: Date;
+  end: Date;
+  enable: boolean;
+} {
+  return {
+    begin: m.createdAt,
+    end: m.accessEndsAt ?? m.createdAt,
+    // Түр зогсоосон гишүүнд эрхийг унтраана (огноог нь хөндөхгүй).
+    // Хугацаа дууссан гишүүнийг УНТРААХГҮЙ — дуусах огноо нь өөрөө
+    // хаана. Терминал ч мөн адил `enable`-ыг үлдээдэг.
+    enable: m.status !== MemberStatus.SUSPENDED,
+  };
 }

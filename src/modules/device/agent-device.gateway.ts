@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type {
   DeviceGateway,
   DeviceInfo,
+  DeviceUserRow,
   SetValidityInput,
   UpsertUserInput,
 } from './device.gateway';
@@ -31,6 +32,9 @@ export class AgentDeviceGateway implements DeviceGateway {
     this.notReady();
   }
   faceStatus(_employeeNos: number[]): Promise<Record<number, boolean>> {
+    this.notReady();
+  }
+  listUsers(): Promise<DeviceUserRow[]> {
     this.notReady();
   }
   openDoor(_doorNo?: number): Promise<void> {

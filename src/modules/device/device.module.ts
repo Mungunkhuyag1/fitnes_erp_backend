@@ -9,6 +9,7 @@ import { Device } from './device.entity';
 import { DEVICE_GATEWAY } from './device.gateway';
 import { DeviceController } from './device.controller';
 import { DeviceReconcileService } from './device-reconcile.service';
+import { DeviceAuditService } from './device-audit.service';
 import { DeviceConnectionService } from './device-connection.service';
 import { DeviceDiagnosticsService } from './device-diagnostics.service';
 import { DeviceService } from './device.service';
@@ -30,6 +31,7 @@ import { StubDeviceGateway } from './stub-device.gateway';
   ],
   controllers: [DeviceController],
   providers: [
+    DeviceAuditService,
     DeviceConnectionService,
     DeviceDiagnosticsService,
     StubDeviceGateway,
@@ -72,6 +74,7 @@ import { StubDeviceGateway } from './stub-device.gateway';
     StubDeviceGateway,
     DeviceService,
     DeviceReconcileService,
+    DeviceAuditService,
   ],
 })
 export class DeviceModule {}

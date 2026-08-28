@@ -132,6 +132,44 @@ export class IsapiClient {
   }
 
   /**
+   * БҮХ хэрэглэгчийг хуудаслан татна.
+   *
+   * ⚠ `totalMatches` нь ЭХНИЙ хуудсанд л ирдэг тул түүнийг барьж авч
+   * дуустал давтана. Мөн `maxResults` нь firmware-ээс хамааран
+   * хязгаартай — 30-аар багцлах нь бүх хувилбар дээр найдвартай.
+   *
+   * ⚠ Энэ нь ХҮНД дуудлага (337 хэрэглэгч ≈ 12 хүсэлт). Ойрхон
+   * давтвал терминал удаашрах тул зөвхөн шөнийн тулгалтад хэрэглэнэ.
+   */
+  async listUsers(): Promise<Json[]> {
+    const users: Json[] = [];
+    let pos = 0;
+    let total = 0;
+    for (;;) {
+      const body = JSON.stringify({
+        UserInfoSearchCond: {
+          searchID: 'winfit-audit',
+          searchResultPosition: pos,
+          maxResults: 30,
+        },
+      });
+      const { status, text } = await this.json(
+        'POST',
+        '/ISAPI/AccessControl/UserInfo/Search?format=json',
+        body,
+      );
+      if (status !== 200) throw new IsapiError(status, text);
+      const search = (this.parse(text).UserInfoSearch ?? {}) as Json;
+      total = (search.totalMatches as number) ?? total;
+      const batch = (search.UserInfo as Json[]) ?? [];
+      users.push(...batch);
+      if (!batch.length || users.length >= total) break;
+      pos += batch.length;
+    }
+    return users;
+  }
+
+  /**
    * Хэрэглэгч үүсгэх / шинэчлэх.
    *
    * ISAPI-д `Record` (шинэ) ба `Modify` (байгаа) тусдаа тул эхлээд хайж

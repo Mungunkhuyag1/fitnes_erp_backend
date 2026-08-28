@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { basename, join } from 'path';
 import { ConfigService } from '@nestjs/config';
-import { MissingDeviceUserError } from './device.gateway';
+import { MissingDeviceUserError, type DeviceUserRow } from './device.gateway';
 import type {
   DeviceGateway,
   DeviceInfo,
@@ -140,6 +140,17 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
   async deleteUser(employeeNo: number): Promise<void> {
     await this.simulate('deleteUser', employeeNo);
     this.users.delete(employeeNo);
+  }
+
+  async listUsers(): Promise<DeviceUserRow[]> {
+    await this.simulate('listUsers');
+    return [...this.users.values()].map((u) => ({
+      employeeNo: u.employeeNo,
+      name: u.name,
+      begin: u.begin,
+      end: u.end,
+      enable: u.enable,
+    }));
   }
 
   async faceStatus(employeeNos: number[]): Promise<Record<number, boolean>> {
