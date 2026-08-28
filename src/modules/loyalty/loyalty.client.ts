@@ -82,6 +82,9 @@ export class LoyaltyClient {
   private windowStart = 0;
   private windowCount = 0;
 
+  /** Stub горимын зөвшөөрөгдсөн дугаарууд — санах ойд. */
+  private readonly stubPhones = new Map<string, AllowedPhoneRow>();
+
   constructor(
     private readonly config: ConfigService,
     private readonly settings: SettingsService,
@@ -278,6 +281,17 @@ export class LoyaltyClient {
     path: string,
     body?: unknown,
   ): Promise<T> {
+    // ★ STUB ГОРИМ — Loopy руу ОГТ ХҮРЭХГҮЙ.
+    //
+    // ⚠ Урьд нь `LOOPY_MODE` нь зөвхөн `main.ts`-ийн production
+    // хамгаалалтад л уншигддаг байсан бөгөөд клиент түүнийг ОГТ
+    // ХАРДАГГҮЙ байв. Үр дүнд `LOOPY_MODE=stub` тавьсан ч
+    // `LOOPY_API_URL`/`KEY` байвал БОДИТ Loopy руу бичсээр байсан —
+    // хөгжүүлэлтийн тестийн дугаар прод жагсаалтад орж байлаа.
+    if (this.config.get<string>('gateways.loopy') === 'stub') {
+      return this.stub<T>(method, path, body);
+    }
+
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException('Loopy холболт тохируулаагүй');
     }
@@ -316,6 +330,82 @@ export class LoyaltyClient {
    * 90/мин хязгаарт хүрвэл `429` авч, outbox дэмий retry хийнэ. Тиймээс
    * клиент талдаа хүлээнэ.
    */
+  /**
+   * Loopy-г дуурайх — санах ойд.
+   *
+   * Хоосон объект буцаавал дуудагч талууд эвдэрнэ (жагсаалт хүлээж
+   * байсан газар `undefined` ирнэ). Тиймээс метод бүрийн ХҮЛЭЭЖ БУЙ
+   * хэлбэрийг зөв буцаана.
+   *
+   * Жагсаалт, картыг санах ойд барина — ингэснээр «нэмсэн дугаар
+   * жагсаалтад харагдана», «карт үүсгээд төлөв нь солигдоно» гэсэн
+   * урсгалыг терминалын stub шиг бодитоор турших боломжтой.
+   */
+  private stub<T>(method: string, path: string, body?: unknown): T {
+    const b = (body ?? {}) as Record<string, unknown>;
+    this.log.debug(`[stub] ${method} ${path}`);
+
+    // ── Зөвшөөрөгдсөн дугаар ──
+    if (path.includes('/allowed-phones')) {
+      if (method === 'POST') {
+        const phone = String(b.phone ?? '');
+        if (phone) {
+          this.stubPhones.set(phone, {
+            id: `stub-${phone}`,
+            phone,
+            name: (b.name as string) ?? null,
+            note: (b.note as string) ?? null,
+            // Карт үүсээгүй гэж дуурайна — жинхэнэ Loopy дээр гишүүн
+            // өөрөө enroll хийх хүртэл ийм байдаг.
+            used: false,
+            cardId: null,
+          });
+        }
+        return undefined as T;
+      }
+      if (method === 'DELETE') {
+        // Зам нь `.../allowed-phones/99001122`
+        this.stubPhones.delete(decodeURIComponent(path.split('/').pop() ?? ''));
+        return undefined as T;
+      }
+      return [...this.stubPhones.values()] as T;
+    }
+
+    // ── Программ ──
+    if (path.endsWith('/enroll-link')) {
+      return {
+        programId: 'stub-program',
+        name: 'WinFit (stub)',
+        enrollAllowlist: true,
+        enrollUrl: 'https://example.invalid/enroll/stub',
+      } as T;
+    }
+    if (path === '/programs') {
+      return [
+        {
+          id: this.config.get<string>('loopy.programId') ?? 'stub-program',
+          name: 'WinFit (stub)',
+          type: 'pass',
+          target: null,
+          status: 'active',
+        },
+      ] as T;
+    }
+
+    // ── Карт ──
+    //
+    // ⚠ Карт ҮҮСГЭХГҮЙ. Жинхэнэ Loopy дээр картыг ГИШҮҮН өөрөө
+    // enroll хийж үүсгэдэг (WinFit үүсгэдэггүй) тул stub нь «карт
+    // хараахан алга» гэж хэлэх нь бодит байдалд ойр.
+    if (path.startsWith('/cards')) {
+      if (path.includes('?')) return { items: [], total: 0 } as T;
+      if (method === 'GET') throw new PermanentError('[stub] карт алга');
+      return { changed: true, pushed: false, appleDevices: 0 } as T;
+    }
+
+    return undefined as T;
+  }
+
   private async throttle(): Promise<void> {
     const limit = this.config.get<number>('loopy.rateLimitPerMin') ?? 60;
     const now = Date.now();
