@@ -2,6 +2,7 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 import { mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
+import { DeviceConnectionService } from './device-connection.service';
 import { IsapiClient } from './isapi/isapi.client';
 
 export interface DiagStep {
@@ -42,27 +43,68 @@ export interface DiagResult {
 export class DeviceDiagnosticsService {
   private readonly log = new Logger(DeviceDiagnosticsService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly address: DeviceConnectionService,
+  ) {}
 
-  private client(): IsapiClient {
-    const host = this.config.get<string>('hikvision.host');
-    if (!host) {
+  /**
+   * Хаягийг DB → `.env` эрэмбээр авна.
+   *
+   * ⚠ `.env`-ийг ШУУД уншиж БОЛОХГҮЙ: DHCP-ээр хаяг солигдоход дэлгэцээс
+   * шинэчилсэн утга DB-д л байна. Оношилгоо хуучин хаяг руу залгавал
+   * «холбогдсонгүй» гэж худал мэдээлнэ.
+   */
+  private async client(timeoutMs = 15_000): Promise<IsapiClient> {
+    const cfg = await this.address.connection();
+    if (!cfg) {
       throw new ServiceUnavailableException(
-        'HIK_HOST тохируулаагүй — .env дээр терминалын IP оруулна уу',
+        'Терминалын хаяг тодорхойгүй — Терминал хуудсанд холболтоо тохируулна уу',
       );
     }
-    return new IsapiClient({
-      host,
-      port: this.config.get<number>('hikvision.port'),
-      user: this.config.getOrThrow<string>('hikvision.user'),
-      password: this.config.getOrThrow<string>('hikvision.password'),
-      https: this.config.get<boolean>('hikvision.https'),
-      timeoutMs: 15_000,
-    });
+    return new IsapiClient({ ...cfg, timeoutMs });
+  }
+
+  /**
+   * Холболтыг НЭГ уншилтаар шалгана — тохиргоо хадгалсны дараа.
+   *
+   * ⚠ ЗӨВХӨН НЭГ дуудлага. Hikvision нь буруу нууц үгийг 5 удаа
+   * оролдвол IP-г 30 МИНУТ блокдог тул давтаж оролдох ёсгүй.
+   *
+   * Амжилттай бол модель/firmware-ийг DB-д бичнэ — дэлгэцэд «яг ямар
+   * төхөөрөмжтэй ярьж байна» гэдэг нь харагдана.
+   */
+  async test(): Promise<{ ok: boolean; detail: string }> {
+    try {
+      // 6 сек — ажилтан дэлгэц ширтэж хүлээж байгаа. Буруу хаяг
+      // оруулсныг 15 секунд хүлээлгэж мэдэгдэх нь хэтэрхий удаан.
+      const api = await this.client(6_000);
+      const info = await api.deviceInfo();
+      await this.address.remember(api.address.split(':')[0], {
+        model: info.model,
+        firmware: info.firmware,
+      });
+      return { ok: true, detail: `${info.model} · ${info.firmware}` };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Тодорхойгүй алдаа';
+      this.log.warn(`Холболтын шалгалт унав: ${msg}`);
+      // Түгээмэл шалтгаануудыг ойлгомжтой болгоно — түүхий алдаа нь
+      // ажилтанд юу засахыг хэлж өгдөггүй.
+      if (/401|digest|unauthor/i.test(msg)) {
+        return { ok: false, detail: 'Нэр/нууц үг буруу байна' };
+      }
+      if (/timeout|abort|ECONNREFUSED|fetch failed|ENETUNREACH/i.test(msg)) {
+        return {
+          ok: false,
+          detail: 'Хаяг/порт руу хүрсэнгүй — IP, порт (ISAPI нь 80), сүлжээгээ шалгана уу',
+        };
+      }
+      return { ok: false, detail: msg };
+    }
   }
 
   async run(opts: { employeeNo?: number; eventHours?: number } = {}): Promise<DiagResult> {
-    const api = this.client();
+    const api = await this.client();
     const employeeNo = opts.employeeNo ?? 1;
     const hours = Math.min(720, Math.max(1, opts.eventHours ?? 24));
 
@@ -145,7 +187,7 @@ export class DeviceDiagnosticsService {
 
     const result: DiagResult = {
       at: new Date().toISOString(),
-      host: this.config.get<string>('hikvision.host') ?? '',
+      host: (await this.address.host()) ?? '',
       mode: this.config.get<string>('gateways.device') ?? 'direct',
       steps,
       ok: steps.filter((s) => s.ok).length,

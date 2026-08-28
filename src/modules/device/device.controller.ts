@@ -13,9 +13,11 @@ import { CurrentUser, type AuthUser } from '../../common/decorators/current-user
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
 import { AuditService } from '../audit/audit.service';
-import { DeviceAddressService } from './device-address.service';
+import { DeviceConnectionService } from './device-connection.service';
 import { DeviceDiagnosticsService } from './device-diagnostics.service';
 import { DeviceService } from './device.service';
+import { DirectDeviceGateway } from './direct-device.gateway';
+import { UpdateConnectionDto } from './dto/connection.dto';
 
 @ApiTags('devices')
 @ApiBearerAuth('access-token')
@@ -25,7 +27,8 @@ export class DeviceController {
     private readonly devices: DeviceService,
     private readonly audit: AuditService,
     private readonly diag: DeviceDiagnosticsService,
-    private readonly addr: DeviceAddressService,
+    private readonly addr: DeviceConnectionService,
+    private readonly direct: DirectDeviceGateway,
   ) {}
 
   @Get()
@@ -52,30 +55,50 @@ export class DeviceController {
     return this.devices.ping();
   }
 
-  /** Одоогийн хаяг, эх сурвалж, дэд сүлжээ — дэлгэцэд. */
-  @Get('address')
-  @ApiOperation({ summary: 'Терминалын хаягийн төлөв' })
-  address() {
+  /** Одоогийн холболтын тохиргоо — дэлгэцэд (нууц үггүй). */
+  @Get('connection')
+  @ApiOperation({ summary: 'Терминалын холболтын тохиргоо' })
+  connection() {
     return this.addr.current();
   }
 
-  /** Хаягийг гараар тавих — автомат хайлт бүтэлгүйтсэн үед. */
+  /**
+   * Холболтын тохиргоог дэлгэцээс хадгална.
+   *
+   * ЯАГААД ДЭЛГЭЦЭЭС ВЭ: IP нь DHCP-ээр солигдоно, нууц үгийг заалан
+   * дээр солино. `.env` дээр байвал ажилтан өөрөө засаж чадахгүй,
+   * дахин deploy хүлээх болно.
+   *
+   * Хадгалсны ДАРАА нэн даруй: gateway-г шинэ тохиргоогоор дахин
+   * үүсгээд, терминал руу нэг уншилт хийж БАТАЛГААЖУУЛНА. Ингэснээр
+   * ажилтан «хадгаллаа» гэж бодоод буруу тохиргоотой үлдэхгүй.
+   */
   @Roles(Role.MANAGER)
-  @Patch('address')
-  @ApiOperation({ summary: 'Терминалын хаягийг гараар оруулах' })
-  async setAddress(
-    @Body() body: { ip?: string },
+  @Patch('connection')
+  @ApiOperation({ summary: 'Терминалын холболтыг тохируулж, шалгах' })
+  async setConnection(
+    @Body() dto: UpdateConnectionDto,
     @CurrentUser() user: AuthUser,
   ) {
-    await this.addr.setManual(String(body.ip ?? '').trim());
+    await this.addr.saveConnection(dto);
     await this.audit.record({
       staffUserId: user.id,
-      action: 'device.setAddress',
+      action: 'device.setConnection',
       entity: 'device',
       entityId: 'terminal',
-      after: { ip: body.ip },
+      // ⚠ Нууц үгийг аудитад БИЧИХГҮЙ — зөвхөн солигдсон эсэхийг.
+      after: {
+        ip: dto.ip,
+        port: dto.port,
+        user: dto.user,
+        https: dto.https,
+        passwordChanged: Boolean(dto.password),
+      },
     });
-    return this.addr.current();
+
+    await this.direct.reconnect();
+    const test = await this.diag.test();
+    return { ...(await this.addr.current()), test };
   }
 
   /**

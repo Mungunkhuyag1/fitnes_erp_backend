@@ -202,7 +202,7 @@ async function main(): Promise<void> {
       serial: 'DS-K1T320MFX-0001',
       model: 'DS-K1T320MFX',
       // ⚠ Хуурамч IP бичихгүй. `devices.ip` нь одоо ЖИНХЭНЭ хаягийн
-      // эх сурвалж (`DeviceAddressService`) — таамаг утга бичвэл
+      // эх сурвалж (`DeviceConnectionService`) — таамаг утга бичвэл
       // gateway тэр рүү очиж унана.
       ip: process.env.HIK_HOST || null,
       doorNo: 1,

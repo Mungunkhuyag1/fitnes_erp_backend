@@ -3,7 +3,20 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { networkInterfaces } from 'os';
 import { Repository } from 'typeorm';
+import { open, seal } from '../../common/utils/secret-box';
 import { Device } from './device.entity';
+
+/** Терминалтай ярихад хэрэгтэй бүх зүйл. */
+export interface DeviceConnection {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  https: boolean;
+}
+
+/** Талбар бүр хаанаас ирснийг дэлгэцэд харуулна. */
+type Src = 'db' | 'env' | 'none';
 
 /**
  * Терминалын IP хаягийг шийдэх, автоматаар дахин олох.
@@ -21,8 +34,8 @@ import { Device } from './device.entity';
  * хаягийг олоод DB-д бичнэ.
  */
 @Injectable()
-export class DeviceAddressService {
-  private readonly log = new Logger(DeviceAddressService.name);
+export class DeviceConnectionService {
+  private readonly log = new Logger(DeviceConnectionService.name);
   /** Сканнердах хугацаа — хэт богино бол алсын төхөөрөмж алдагдана. */
   private static readonly PROBE_MS = 1_200;
 
@@ -31,13 +44,86 @@ export class DeviceAddressService {
     private readonly config: ConfigService,
   ) {}
 
-  /** Одоо ашиглах хаяг. */
-  async host(): Promise<string | null> {
-    const row = await this.devices.findOne({
+  private row(): Promise<Device | null> {
+    return this.devices.findOne({
       where: { active: true },
       order: { createdAt: 'ASC' },
     });
+  }
+
+  /** Одоо ашиглах хаяг. */
+  async host(): Promise<string | null> {
+    const row = await this.row();
     return row?.ip || this.config.get<string>('hikvision.host') || null;
+  }
+
+  /**
+   * Терминалтай холбогдох БҮРЭН тохиргоо: DB → `.env` талбар тус бүрээр.
+   *
+   * ⚠ Талбар бүрийг ТУСАД нь уначлана. Дэлгэцээс зөвхөн IP-г солиход
+   * нууц үг `.env`-ээс үргэлжлэн ирэх ёстой — бүхэлд нь DB эсвэл env
+   * гэж сонговол хагас тохируулга ажиллахаа болино.
+   */
+  async connection(): Promise<DeviceConnection | null> {
+    const row = await this.row();
+    const host = row?.ip || this.config.get<string>('hikvision.host') || '';
+    if (!host) return null;
+
+    const stored = row?.passwordEnc
+      ? open(row.passwordEnc, this.config.getOrThrow<string>('jwt.secret'))
+      : null;
+    if (row?.passwordEnc && stored === null) {
+      // JWT_SECRET солигдсон — нууц үгийг тайлж чадахгүй.
+      this.log.warn('Хадгалсан нууц үг тайлагдсангүй — дэлгэцээс дахин оруулна уу');
+    }
+
+    return {
+      host,
+      port: row?.port ?? this.config.get<number>('hikvision.port') ?? 80,
+      user: row?.username || this.config.get<string>('hikvision.user') || 'admin',
+      password: stored ?? this.config.get<string>('hikvision.password') ?? '',
+      https: row?.https ?? this.config.get<boolean>('hikvision.https') ?? false,
+    };
+  }
+
+  /**
+   * Дэлгэцээс ирсэн тохиргоог хадгална.
+   *
+   * `undefined` талбарыг ХӨНДӨХГҮЙ, хоосон мөр нь «`.env`-ээ ашигла»
+   * гэсэн үг (`null` бичнэ). Нууц үгийг хоосон илгээвэл ХУУЧНААР
+   * үлдэнэ — дэлгэц нууц үгийг буцааж уншиж чаддаггүй тул давхар
+   * хадгалахад нь устгаж болохгүй.
+   */
+  async saveConnection(input: {
+    ip?: string;
+    port?: number | null;
+    user?: string | null;
+    password?: string | null;
+    https?: boolean | null;
+  }): Promise<void> {
+    if (input.ip !== undefined) {
+      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(input.ip)) {
+        throw new BadRequestException('IP хаяг буруу байна (жиш. 192.168.0.106)');
+      }
+      await this.remember(input.ip);
+    }
+    if (input.port != null && (input.port < 1 || input.port > 65535)) {
+      throw new BadRequestException('Порт 1–65535 хооронд байна');
+    }
+
+    const row = await this.row();
+    if (!row) throw new BadRequestException('Эхлээд IP хаягаа оруулна уу');
+
+    if (input.port !== undefined) row.port = input.port;
+    if (input.user !== undefined) row.username = input.user || null;
+    if (input.https !== undefined) row.https = input.https;
+    if (input.password) {
+      row.passwordEnc = seal(input.password, this.config.getOrThrow<string>('jwt.secret'));
+    } else if (input.password === null) {
+      row.passwordEnc = null;
+    }
+    await this.devices.save(row);
+    this.log.log('Терминалын холболтын тохиргоо шинэчлэв');
   }
 
   /** Олсон хаягийг DB-д бичнэ. Мөр байхгүй бол үүсгэнэ. */
@@ -75,46 +161,51 @@ export class DeviceAddressService {
     this.log.log(`Терминал бүртгэв: ${ip}`);
   }
 
-  /** Одоогийн төлөв — дэлгэцэд харуулах. */
+  /**
+   * Одоогийн төлөв — дэлгэцэд харуулах.
+   *
+   * ⚠ Нууц үгийг БУЦААХГҮЙ. Зөвхөн «тохируулсан эсэх» тугийг өгнө:
+   * дэлгэцэд харуулбал browser-ийн санах ой, лог, screenshot-оор
+   * тархана. Ажилтан солих бол шинийг нь бичнэ.
+   */
   async current(): Promise<{
     ip: string | null;
-    source: 'db' | 'env' | 'none';
+    port: number;
+    user: string;
+    https: boolean;
+    passwordSet: boolean;
+    source: { ip: Src; port: Src; user: Src; password: Src };
     envHost: string | null;
     model: string | null;
     firmware: string | null;
     lastSeenAt: Date | null;
     subnet: string | null;
   }> {
-    const row = await this.devices.findOne({
-      where: { active: true },
-      order: { createdAt: 'ASC' },
-    });
+    const row = await this.row();
     const envHost = this.config.get<string>('hikvision.host') || null;
+    const envUser = this.config.get<string>('hikvision.user') || null;
+    const envPass = this.config.get<string>('hikvision.password') || null;
+    const src = (db: unknown, env: unknown): Src =>
+      db != null && db !== '' ? 'db' : env != null && env !== '' ? 'env' : 'none';
+
     return {
       ip: row?.ip || envHost,
-      source: row?.ip ? 'db' : envHost ? 'env' : 'none',
+      port: row?.port ?? this.config.get<number>('hikvision.port') ?? 80,
+      user: row?.username || envUser || 'admin',
+      https: row?.https ?? this.config.get<boolean>('hikvision.https') ?? false,
+      passwordSet: Boolean(row?.passwordEnc || envPass),
+      source: {
+        ip: src(row?.ip, envHost),
+        port: src(row?.port, true),
+        user: src(row?.username, envUser),
+        password: src(row?.passwordEnc, envPass),
+      },
       envHost,
       model: row?.model ?? null,
       firmware: row?.firmware ?? null,
       lastSeenAt: row?.lastSeenAt ?? null,
       subnet: this.localSubnet(),
     };
-  }
-
-  /**
-   * Хаягийг ГАРААР тавих.
-   *
-   * Автомат хайлт бүтэлгүйтэх тохиолдол бий (өөр VLAN, сканнердахыг
-   * хориглосон сүлжээ). Ажилтан router-ээс хаягийг олж мэддэг тул
-   * шууд бичих зам ҮРГЭЛЖ байх ёстой.
-   */
-  async setManual(ip: string): Promise<void> {
-    // ⚠ Хэлбэрийг шалгана: буруу утга орвол gateway бүх дуудлага дээр
-    // унаж, шалтгаан нь тодорхойгүй болно.
-    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
-      throw new BadRequestException('IP хаяг буруу байна (жиш. 192.168.0.106)');
-    }
-    await this.remember(ip);
   }
 
   /** Энэ машины дэд сүлжээ, жишээ нь `192.168.0`. */
@@ -169,7 +260,7 @@ export class DeviceAddressService {
   private async probe(ip: string): Promise<string | null> {
     try {
       const res = await fetch(`http://${ip}/ISAPI/System/deviceInfo`, {
-        signal: AbortSignal.timeout(DeviceAddressService.PROBE_MS),
+        signal: AbortSignal.timeout(DeviceConnectionService.PROBE_MS),
       });
       const auth = res.headers.get('www-authenticate') ?? '';
       const server = res.headers.get('server') ?? '';

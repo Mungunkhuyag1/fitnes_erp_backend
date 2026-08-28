@@ -9,7 +9,7 @@ import { Device } from './device.entity';
 import { DEVICE_GATEWAY } from './device.gateway';
 import { DeviceController } from './device.controller';
 import { DeviceReconcileService } from './device-reconcile.service';
-import { DeviceAddressService } from './device-address.service';
+import { DeviceConnectionService } from './device-connection.service';
 import { DeviceDiagnosticsService } from './device-diagnostics.service';
 import { DeviceService } from './device.service';
 import { DirectDeviceGateway } from './direct-device.gateway';
@@ -30,7 +30,7 @@ import { StubDeviceGateway } from './stub-device.gateway';
   ],
   controllers: [DeviceController],
   providers: [
-    DeviceAddressService,
+    DeviceConnectionService,
     DeviceDiagnosticsService,
     StubDeviceGateway,
     DirectDeviceGateway,

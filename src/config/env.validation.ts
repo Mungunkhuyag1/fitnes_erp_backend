@@ -108,19 +108,18 @@ export const envValidationSchema = Joi.object({
   // ── Hikvision (DEVICE_GATEWAY=direct үед) ──
   // `agent` горимд эдгээр хэрэггүй — агент нь фитнесийн дотоод сүлжээнд
   // сууж, хаяг/нууц үгийг ӨӨРТӨӨ хадгална.
-  HIK_HOST: Joi.string()
-    .allow('')
-    .default('')
-    .when('DEVICE_GATEWAY', { is: 'direct', then: Joi.string().invalid('').required() }),
+  // Хаяг DB-д хадгалагдана (Терминал → Сүлжээний хаяг), эсвэл дэд сүлжээнээс
+  // автоматаар олдоно. Иймд `direct` горимд ч ЗААВАЛ БИШ — DHCP-ээр IP
+  // солигдоход .env засаад дахин deploy хийхээс аварна.
+  HIK_HOST: Joi.string().allow('').default(''),
   DEVICE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
   DEVICE_EVENT_POLL_MS: Joi.number().min(30_000).max(3_600_000).default(300_000),
   DEVICE_EVENT_WINDOW_MIN: Joi.number().min(1).max(1440).default(15),
   HIK_PORT: Joi.number().default(80),
   HIK_USER: Joi.string().allow('').default('admin'),
-  HIK_PASSWORD: Joi.string()
-    .allow('')
-    .default('')
-    .when('DEVICE_GATEWAY', { is: 'direct', then: Joi.string().invalid('').required() }),
+  // Нууц үгийг дэлгэцээс тохируулж, DB-д НУУЦЛААД хадгална. `.env` нь
+  // зөвхөн анхны суулгалтын түлхэц — иймд заавал биш.
+  HIK_PASSWORD: Joi.string().allow('').default(''),
   HIK_HTTPS: Joi.string().valid('true', 'false').default('false'),
 
   // ── Hikvision ──

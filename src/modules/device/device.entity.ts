@@ -30,6 +30,25 @@ export class Device {
   @Column({ type: 'varchar', length: 45, nullable: true })
   ip: string | null;
 
+  /**
+   * Холболтын тохиргоо — БҮГД nullable.
+   *
+   * `null` = «энэ талбарыг тохируулаагүй» → `.env`-ийн утга үйлчилнэ.
+   * Ингэснээр дэлгэцээс зөвхөн солигдсоныг нь дарж бичиж болно.
+   */
+  @Column({ type: 'int', nullable: true })
+  port: number | null;
+
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  username: string | null;
+
+  /** AES-256-GCM-ээр нууцалсан. ЦЭЭЖЭЭР хадгалахгүй. */
+  @Column({ name: 'password_enc', type: 'text', nullable: true })
+  passwordEnc: string | null;
+
+  @Column({ type: 'boolean', nullable: true })
+  https: boolean | null;
+
   @Column({ name: 'door_no', type: 'int', default: 1 })
   doorNo: number;
 

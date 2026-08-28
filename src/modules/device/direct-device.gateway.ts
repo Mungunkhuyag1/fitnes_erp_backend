@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PermanentError } from '../outbox/outbox.errors';
-import { DeviceAddressService } from './device-address.service';
+import { DeviceConnectionService } from './device-connection.service';
 import {
   DigestAuthError,
   IsapiClient,
@@ -36,7 +36,7 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly address: DeviceAddressService,
+    private readonly address: DeviceConnectionService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -52,22 +52,27 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
    * бичсэн хаяг нь `.env`-ийнхээс үргэлж шинэ байна.
    */
   private async connect(): Promise<boolean> {
-    const host = await this.address.host();
-    if (!host) {
+    const cfg = await this.address.connection();
+    if (!cfg) {
       this.log.error('Терминалын хаяг тодорхойгүй — DB болон HIK_HOST хоосон');
       this.client = null;
       return false;
     }
-    this.client = new IsapiClient({
-      host,
-      port: this.config.get<number>('hikvision.port'),
-      user: this.config.getOrThrow<string>('hikvision.user'),
-      password: this.config.getOrThrow<string>('hikvision.password'),
-      https: this.config.get<boolean>('hikvision.https'),
-      timeoutMs: 15_000,
-    });
+    this.client = new IsapiClient({ ...cfg, timeoutMs: 15_000 });
     this.log.log(`Терминалтай шууд холбогдоно: ${this.client.address}`);
     return true;
+  }
+
+  /**
+   * Тохиргоо ДЭЛГЭЦЭЭС өөрчлөгдсөн үед клиентийг дахин үүсгэнэ.
+   *
+   * ⚠ Клиент нь тохиргоог үүсгэх үедээ ХУУЛЖ авдаг. Дахин үүсгэхгүй бол
+   * ажилтан шинэ нууц үг хадгалсан ч сервер дахин асах хүртэл хуучнаар
+   * ярьсаар байх бөгөөд буруу нууц үгийн тоолуур өсч, терминал IP-г
+   * блоклоно.
+   */
+  async reconnect(): Promise<boolean> {
+    return this.connect();
   }
 
   /**
