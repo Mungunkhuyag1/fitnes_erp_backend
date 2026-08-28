@@ -79,12 +79,16 @@ async function main(): Promise<void> {
     const r = body as {
       removed: number[];
       shifted: number[];
+      disabled: number[];
+      both: number[];
       added: { employeeNo: number; name: string }[];
     };
     console.log('✓ Туршилтын зөрүү үүсгэв:');
-    console.log(`  Терминал дээр алга  → №${r.removed.join(', №')}`);
-    console.log(`  Огноо зөрсөн (+45х) → №${r.shifted.join(', №')}`);
-    console.log(`  WinFit-д алга       → ${r.added.map((a) => `№${a.employeeNo} ${a.name}`).join(', ')}`);
+    console.log(`  Терминал дээр алга    → №${r.removed.join(', №')}`);
+    console.log(`  Огноо зөрсөн (+45х)   → №${r.shifted.join(', №')}`);
+    console.log(`  Эрх унтраасан         → №${r.disabled.join(', №')}`);
+    console.log(`  Огноо+эрх хоёулаа     → №${r.both.join(', №')}`);
+    console.log(`  WinFit-д алга         → ${r.added.map((a) => `№${a.employeeNo} ${a.name}`).join(', ')}`);
   }
 
   // Тулгалт юуг олсныг ШУУД харуулна — тусад нь шалгах шаардлагагүй.

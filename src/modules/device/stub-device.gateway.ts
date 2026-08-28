@@ -91,14 +91,18 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
    * батлах аргагүй. Жинхэнэ терминал дээр зөрүү үүсгэх нь аюултай тул
    * (буруу устгасан хүн орж чадахгүй болно) зөвхөн санах ойн stub дээр.
    *
-   * Дөрвөн ангилал тус бүрд бодит нөхцөл дуурайна:
-   *  • `missing` — терминалыг reset хийсэн мэт хэрэглэгчийг арилгана
-   *  • `drift`   — хэн нэгэн огноог гараар өөрчилсөн мэт
-   *  • `extras`  — хэн нэгэн терминал дээр гараар хүн нэмсэн мэт
+   * Бодит нөхцөл бүрийг дуурайна:
+   *  • `missing`  — терминалыг reset хийсэн мэт хэрэглэгчийг арилгана
+   *  • `shifted`  — хэн нэгэн ОГНООГ гараар өөрчилсөн мэт
+   *  • `disabled` — хэн нэгэн ЭРХИЙГ гараар унтраасан мэт
+   *  • `both`     — огноо БА эрх хоёулаа зөрсөн (нэг мөрөнд хоёр талбар)
+   *  • `extras`   — хэн нэгэн терминал дээр гараар хүн нэмсэн мэт
    */
   devMakeDrift(n = 3): {
     removed: number[];
     shifted: number[];
+    disabled: number[];
+    both: number[];
     added: { employeeNo: number; name: string }[];
   } {
     const nos = [...this.users.keys()].sort((a, b) => a - b);
@@ -115,7 +119,29 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
       if (u) u.end = new Date(u.end.getTime() + 45 * 86_400_000);
     }
 
-    // 3. Нэмнэ — «WinFit-д алга» болно. Дугаарыг ӨНДӨР мужаас авна:
+    // 3. Эрхийг унтраана — «идэвх» талбар зөрнө.
+    //
+    // ⚠ Огнооноос ТУСДАА үүсгэх нь чухал: WinFit нь хугацаа дууссан
+    // гишүүний эрхийг унтраадаггүй (`enable = status !== SUSPENDED`)
+    // тул энэ талбар өөр замаар зөрдөггүй. Тусад нь дуурайхгүй бол
+    // «Идэвх» зөрүү хэзээ ч туршигдахгүй.
+    const disabled = nos.slice(n * 2, n * 3);
+    for (const no of disabled) {
+      const u = this.users.get(no);
+      if (u) u.enable = false;
+    }
+
+    // 4. Хоёуланг нь зөрүүлнэ — нэг мөрөнд ХОЁР талбар харагдана.
+    const both = nos.slice(n * 3, n * 4);
+    for (const no of both) {
+      const u = this.users.get(no);
+      if (u) {
+        u.end = new Date(u.end.getTime() + 90 * 86_400_000);
+        u.enable = false;
+      }
+    }
+
+    // 5. Нэмнэ — «WinFit-д алга» болно. Дугаарыг ӨНДӨР мужаас авна:
     //    гишүүний дугаарын дараалалтай мөргөлдвөл дараа нь бүртгүүлсэн
     //    жинхэнэ гишүүн «илүү» гэж буруу харагдана.
     const base = 900_001;
@@ -136,9 +162,10 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
 
     this.log.warn(
       `ТУРШИЛТ: зөрүү үүсгэв — устгасан ${removed.length}, ` +
-        `огноо зөрүүлсэн ${shifted.length}, нэмсэн ${added.length}`,
+        `огноо ${shifted.length}, эрх ${disabled.length}, ` +
+        `хоёулаа ${both.length}, нэмсэн ${added.length}`,
     );
-    return { removed, shifted, added };
+    return { removed, shifted, disabled, both, added };
   }
 
   /** Экспортын анхны байдалд БУЦААНА — туршилтын дараа цэвэрлэнэ. */
