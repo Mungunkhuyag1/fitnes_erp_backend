@@ -35,12 +35,17 @@ export interface DriftRow {
   fields: FieldDiff[];
 }
 
-/** Терминал дээр байгаа ч WinFit-д тохирох гишүүнгүй мөр. */
-export interface ExtraUser {
-  employeeNo: number;
-  name: string;
-  end: string | null;
-}
+/**
+ * Бүх ангилал НЭГ хэлбэртэй.
+ *
+ * ЯАГААД: дэлгэц дээр «дэлгэрэнгүй» цонх нь ангилал бүрд ижил
+ * хүснэгт (Талбар · WinFit · Терминал) харуулна. Ангилал болгон
+ * өөр хэлбэртэй бол цонхыг гурав дахин бичих болно.
+ *
+ * Талд байхгүй утгыг `—` гэж бичнэ: «терминал дээр алга» дээр
+ * терминалын багана бүхэлдээ `—`, «WinFit-д алга» дээр эсрэгээрээ.
+ */
+export type ExtraUser = DriftRow;
 
 /** WinFit ↔ терминалын зөрүү. */
 export interface DeviceAuditDiff {
@@ -51,7 +56,7 @@ export interface DeviceAuditDiff {
   /** Терминал дээр байх ЁСТОЙ гишүүн (цуцлагдаагүй). */
   winfitTotal: number;
   /** WinFit-д байгаа ч терминал дээр АЛГА. */
-  missing: { employeeNo: number; name: string }[];
+  missing: DriftRow[];
   /**
    * Хоёр талд байгаа ч ЭРХИЙН ЦОНХ зөрсөн — нэвтрэлтэд НӨЛӨӨЛНӨ.
    * Автоматаар засна.
@@ -330,14 +335,27 @@ export class DeviceAuditService {
       });
 
       const onDevice = new Map(deviceUsers.map((u) => [u.employeeNo, u]));
-      const missing: DeviceAuditDiff['missing'] = [];
+      const missing: DriftRow[] = [];
       const drift: DriftRow[] = [];
       const nameDiff: DriftRow[] = [];
 
       for (const m of rows) {
         const d = onDevice.get(m.memberNo);
         if (!d) {
-          missing.push({ employeeNo: m.memberNo, name: m.name });
+          const want = deviceValidity(m);
+          missing.push({
+            employeeNo: m.memberNo,
+            name: m.name,
+            fields: [
+              { field: 'Нэр', winfit: m.name, device: '—' },
+              { field: 'Дуусах огноо', winfit: text(want.end), device: '—' },
+              {
+                field: 'Идэвх',
+                winfit: want.enable ? 'Идэвхтэй' : 'Зогсоосон',
+                device: '—',
+              },
+            ],
+          });
           continue;
         }
         // ⚠ WinFit ЯГ ЮУ БИЧИХ БАЙСАН бэ гэдэгтэй харьцуулна — өөрийн
@@ -381,12 +399,21 @@ export class DeviceAuditService {
       }
 
       const known = new Set(rows.map((m) => m.memberNo));
-      const extras = deviceUsers
+      const extras: DriftRow[] = deviceUsers
         .filter((u) => !known.has(u.employeeNo))
         .map((u) => ({
           employeeNo: u.employeeNo,
           name: u.name,
-          end: u.end ? u.end.toISOString() : null,
+          fields: [
+            { field: 'Нэр', winfit: '—', device: u.name },
+            { field: 'Эхлэх огноо', winfit: '—', device: text(u.begin) },
+            { field: 'Дуусах огноо', winfit: '—', device: text(u.end) },
+            {
+              field: 'Идэвх',
+              winfit: '—',
+              device: u.enable ? 'Идэвхтэй' : 'Зогсоосон',
+            },
+          ],
         }));
 
       return {
