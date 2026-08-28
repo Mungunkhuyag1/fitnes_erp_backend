@@ -80,6 +80,75 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════
+  //  Туршилтын зориулалт — ЗӨВХӨН stub горимд
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * Тулгалтыг турших ЗӨРҮҮГ зориудаар үүсгэнэ.
+   *
+   * ЯАГААД ХЭРЭГТЭЙ ВЭ: тулгалт зөрүү олохгүй бол «ажиллаж байна» гэдгийг
+   * батлах аргагүй. Жинхэнэ терминал дээр зөрүү үүсгэх нь аюултай тул
+   * (буруу устгасан хүн орж чадахгүй болно) зөвхөн санах ойн stub дээр.
+   *
+   * Дөрвөн ангилал тус бүрд бодит нөхцөл дуурайна:
+   *  • `missing` — терминалыг reset хийсэн мэт хэрэглэгчийг арилгана
+   *  • `drift`   — хэн нэгэн огноог гараар өөрчилсөн мэт
+   *  • `extras`  — хэн нэгэн терминал дээр гараар хүн нэмсэн мэт
+   */
+  devMakeDrift(n = 3): {
+    removed: number[];
+    shifted: number[];
+    added: { employeeNo: number; name: string }[];
+  } {
+    const nos = [...this.users.keys()].sort((a, b) => a - b);
+
+    // 1. Устгана — «терминал дээр алга» болно.
+    const removed = nos.slice(0, n);
+    for (const no of removed) this.users.delete(no);
+
+    // 2. Огноог зөрүүлнэ — «огноо зөрсөн» болно.
+    //    Устгасантай давхцахгүйгээр дараагийн хэсгээс авна.
+    const shifted = nos.slice(n, n * 2);
+    for (const no of shifted) {
+      const u = this.users.get(no);
+      if (u) u.end = new Date(u.end.getTime() + 45 * 86_400_000);
+    }
+
+    // 3. Нэмнэ — «WinFit-д алга» болно. Дугаарыг ӨНДӨР мужаас авна:
+    //    гишүүний дугаарын дараалалтай мөргөлдвөл дараа нь бүртгүүлсэн
+    //    жинхэнэ гишүүн «илүү» гэж буруу харагдана.
+    const base = 900_001;
+    const added = Array.from({ length: n }, (_, i) => ({
+      employeeNo: base + i,
+      name: ['Цэвэрлэгч Дорж', 'Дасгалжуулагч Сараа', 'Зочин Бат'][i] ?? `Туршилт ${i + 1}`,
+    }));
+    for (const a of added) {
+      this.users.set(a.employeeNo, {
+        employeeNo: a.employeeNo,
+        name: a.name,
+        begin: new Date(),
+        end: new Date(Date.now() + 365 * 86_400_000),
+        enable: true,
+        faceAt: 0,
+      });
+    }
+
+    this.log.warn(
+      `ТУРШИЛТ: зөрүү үүсгэв — устгасан ${removed.length}, ` +
+        `огноо зөрүүлсэн ${shifted.length}, нэмсэн ${added.length}`,
+    );
+    return { removed, shifted, added };
+  }
+
+  /** Экспортын анхны байдалд БУЦААНА — туршилтын дараа цэвэрлэнэ. */
+  devReset(): { users: number } {
+    this.users.clear();
+    this.onModuleInit();
+    this.log.warn(`ТУРШИЛТ: экспортын байдалд буцаав — ${this.users.size} хэрэглэгч`);
+    return { users: this.users.size };
+  }
+
   /** `export/` доторх ХАМГИЙН СҮҮЛИЙН файл. */
   private newestExport(): string | null {
     const dir = join(process.cwd(), 'export');

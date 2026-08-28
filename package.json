@@ -25,7 +25,9 @@
     "seed:demo": "ts-node -r tsconfig-paths/register src/database/seeds/seed-demo.ts",
     "export-device": "ts-node -r tsconfig-paths/register scripts/export-device.ts",
     "find-device": "ts-node -r tsconfig-paths/register scripts/find-device.ts",
-    "probe": "ts-node -r tsconfig-paths/register scripts/probe-device.ts"
+    "probe": "ts-node -r tsconfig-paths/register scripts/probe-device.ts",
+    "stub:drift": "ts-node -r tsconfig-paths/register scripts/stub-drift.ts",
+    "stub:reset": "ts-node -r tsconfig-paths/register scripts/stub-drift.ts --reset"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

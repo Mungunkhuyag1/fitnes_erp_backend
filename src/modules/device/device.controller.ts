@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -8,6 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -16,6 +18,7 @@ import { AuditService } from '../audit/audit.service';
 import { DeviceConnectionService } from './device-connection.service';
 import { DeviceDiagnosticsService } from './device-diagnostics.service';
 import { DeviceService } from './device.service';
+import { StubDeviceGateway } from './stub-device.gateway';
 import { DirectDeviceGateway } from './direct-device.gateway';
 import { UpdateConnectionDto } from './dto/connection.dto';
 
@@ -29,6 +32,8 @@ export class DeviceController {
     private readonly diag: DeviceDiagnosticsService,
     private readonly addr: DeviceConnectionService,
     private readonly direct: DirectDeviceGateway,
+    private readonly stub: StubDeviceGateway,
+    private readonly config: ConfigService,
   ) {}
 
   @Get()
@@ -162,5 +167,46 @@ export class DeviceController {
       reason: body?.reason ?? null,
     });
     return res;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  //  Туршилт — ЗӨВХӨН stub горим, production БИШ
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * Тулгалтыг турших ЗӨРҮҮГ зориудаар үүсгэнэ.
+   *
+   * ⚠ Хоёр давхар хамгаалалт: production-д ХЭЗЭЭ Ч ажиллахгүй, мөн
+   * `DEVICE_GATEWAY=stub` биш бол ажиллахгүй. Аль нэг нь дутвал жинхэнэ
+   * терминал дээрх хүмүүсийг устгах эрсдэлтэй.
+   */
+  @Roles(Role.ADMIN)
+  @Post('stub/drift')
+  @ApiOperation({ summary: '[Туршилт] Stub терминал дээр зөрүү үүсгэх' })
+  @ApiQuery({ name: 'n', required: false, description: 'Ангилал тус бүрд хэдэн хүн (өгөгдөхгүй бол 3)' })
+  makeDrift(@Query('n') n?: string) {
+    this.assertStub();
+    const count = Math.min(Math.max(Number(n) || 3, 1), 20);
+    return this.stub.devMakeDrift(count);
+  }
+
+  /** Stub терминалыг экспортын анхны байдалд буцаана. */
+  @Roles(Role.ADMIN)
+  @Post('stub/reset')
+  @ApiOperation({ summary: '[Туршилт] Stub терминалыг анхны байдалд буцаах' })
+  resetStub() {
+    this.assertStub();
+    return this.stub.devReset();
+  }
+
+  private assertStub(): void {
+    if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('Production дээр боломжгүй');
+    }
+    if (this.config.get<string>('gateways.device') !== 'stub') {
+      throw new ForbiddenException(
+        'Зөвхөн DEVICE_GATEWAY=stub үед — жинхэнэ терминалыг хөндөхгүй',
+      );
+    }
   }
 }
