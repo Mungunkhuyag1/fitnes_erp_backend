@@ -219,6 +219,7 @@ export class BonumService {
   // ── Нэхэмжлэх ──
 
   async createInvoice(input: CreateInvoiceInput): Promise<CreateInvoiceResult> {
+    if (this.stubMode) return this.stubInvoice(input);
     this.assertConfigured();
     const title = input.description ?? 'Гишүүнчлэл';
     const body = JSON.stringify({
@@ -308,7 +309,33 @@ export class BonumService {
    * `force` нь зөвхөн ажилтан «холболт шалгах» товч дарсан үед — тэр
    * тохиолдолд ЖИНХЭНЭ шинэ auth хийж, креденшл солигдсоныг илрүүлнэ.
    */
+  /**
+   * `BONUM_MODE=stub` — ЖИНХЭНЭ банк руу огт хандахгүй.
+   *
+   * ⚠ Энэ шалгалт нь `createInvoice`/`ping` ХОЁУЛАНГ нь хамрах ёстой.
+   * (Тугийг зөвхөн ачаалах логонд уншиж, клиент нь шалгадаггүй байсан
+   * тул `BONUM_MODE=stub` тавьсан ч жинхэнэ Bonum руу хүсэлт явдаг
+   * байв — `LOOPY_MODE` дээр яг ижил алдаа гарч байсан.)
+   */
+  private get stubMode(): boolean {
+    return this.config.get<string>('gateways.bonum') === 'stub';
+  }
+
+  /**
+   * Дуурайлган нэхэмжлэл. `followUpLink` нь ӨӨРИЙН `/pay/return` хуудас
+   * руу заана — банкны хуудас руу орох шаардлагагүйгээр төлбөрийн
+   * урсгалыг бүтнээр нь турших боломж өгнө.
+   */
+  private stubInvoice(input: CreateInvoiceInput): CreateInvoiceResult {
+    const invoiceId = `stub-${input.transactionId}`;
+    this.log.warn(`Bonum stub: нэхэмжлэл ${invoiceId} (${input.amount}₮)`);
+    return { invoiceId, followUpLink: input.callback };
+  }
+
   async ping(force = false): Promise<{ ok: boolean; detail?: string }> {
+    if (this.stubMode) {
+      return { ok: true, detail: 'stub горим — банк руу хандаагүй' };
+    }
     try {
       await this.getToken(force);
       return { ok: true };
