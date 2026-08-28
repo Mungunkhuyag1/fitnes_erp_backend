@@ -322,14 +322,27 @@ export class BonumService {
   }
 
   /**
-   * Дуурайлган нэхэмжлэл. `followUpLink` нь ӨӨРИЙН `/pay/return` хуудас
-   * руу заана — банкны хуудас руу орох шаардлагагүйгээр төлбөрийн
-   * урсгалыг бүтнээр нь турших боломж өгнө.
+   * Дуурайлган нэхэмжлэл.
+   *
+   * ⚠ `followUpLink` нь буцах хаяг руу ШУУД заах ЁСГҮЙ. Тэгвэл «Төлөх»
+   * дарахад төлбөр огт хийгдээгүй атал буцах хуудас нээгдэж, «банкнаас
+   * хариу хүлээж байна» гэж мөнхөд эргэлдэнэ.
+   *
+   * Оронд нь дуурайлган банкны хуудас руу заана: тэнд «Төлөх» эсвэл
+   * «Цуцлах» гэсэн сонголт байх бөгөөд жинхэнэ банкны урсгалтай ижил
+   * замаар буцаж ирнэ.
    */
   private stubInvoice(input: CreateInvoiceInput): CreateInvoiceResult {
     const invoiceId = `stub-${input.transactionId}`;
+    // ⚠ `apiBaseUrl` нь `/api` угтвар агуулдаггүй (`setGlobalPrefix('api')`
+    // нь тусад нь нэмэгддэг) тул энд гараар нэмнэ.
+    const base = this.config.get<string>('apiBaseUrl') ?? '';
+    const cb = encodeURIComponent(input.callback);
     this.log.warn(`Bonum stub: нэхэмжлэл ${invoiceId} (${input.amount}₮)`);
-    return { invoiceId, followUpLink: input.callback };
+    return {
+      invoiceId,
+      followUpLink: `${base}/api/public/stub-bank/${input.transactionId}?cb=${cb}`,
+    };
   }
 
   async ping(force = false): Promise<{ ok: boolean; detail?: string }> {
