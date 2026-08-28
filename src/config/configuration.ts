@@ -47,6 +47,19 @@ export const configuration = () => ({
     url: process.env.REDIS_URL,
   },
 
+  mail: {
+    /**
+     * `stub` (анхдагч) үед ЖИНХЭНЭ хаяг руу юу ч явахгүй, зөвхөн лог.
+     * Хөгжүүлэлтийн үед санамсаргүй мэйл илгээх нь буцаах боломжгүй.
+     */
+    mode: process.env.MAIL_MODE ?? 'stub',
+    apiKey: process.env.RESEND_API_KEY,
+    /** Жиш. `WinFit <medeelel@winfit.mn>` — домэйн баталгаажсан байх ёстой. */
+    from: process.env.MAIL_FROM,
+    /** Энэ дүнгээс дээш төлбөрт ТЭР ДАРУЙ мэдэгдэнэ. */
+    largePayment: toInt(process.env.MAIL_LARGE_PAYMENT, 1_000_000),
+  },
+
   jwt: {
     secret: process.env.JWT_SECRET,
     accessTtl: process.env.JWT_ACCESS_TTL ?? '15m',

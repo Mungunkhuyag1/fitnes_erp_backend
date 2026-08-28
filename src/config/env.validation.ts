@@ -123,6 +123,18 @@ export const envValidationSchema = Joi.object({
   HIK_HTTPS: Joi.string().valid('true', 'false').default('false'),
 
   // ── Hikvision ──
+  // ── Мэдэгдлийн мэйл (Resend) ──
+  MAIL_MODE: Joi.string().valid('stub', 'live').default('stub'),
+  RESEND_API_KEY: Joi.string()
+    .allow('')
+    .default('')
+    .when('MAIL_MODE', { is: 'live', then: Joi.string().invalid('').required() }),
+  MAIL_FROM: Joi.string()
+    .allow('')
+    .default('')
+    .when('MAIL_MODE', { is: 'live', then: Joi.string().invalid('').required() }),
+  MAIL_LARGE_PAYMENT: Joi.number().min(0).default(1_000_000),
+
   OUTBOX_RETENTION_DAYS: Joi.number().min(1).max(365).default(14),
 
   HIK_PLAN_TEMPLATE_NO: Joi.string().default('1'),

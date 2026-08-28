@@ -24,6 +24,9 @@ import {
 } from '../loyalty/loyalty-sync.service';
 import { Member } from '../member/member.entity';
 import { OutboxService } from '../outbox/outbox.service';
+import { MailEvent } from '../mail/mail.entity';
+import { MailService } from '../mail/mail.service';
+import { largePayment } from '../mail/mail.template';
 import { Package } from '../package/package.entity';
 import { SettingsService } from '../settings/settings.service';
 import {
@@ -56,6 +59,7 @@ export class MembershipService {
     @InjectRepository(Package) private readonly packages: Repository<Package>,
     private readonly ds: DataSource,
     private readonly outbox: OutboxService,
+    private readonly mail: MailService,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
     private readonly config: ConfigService,
@@ -95,9 +99,11 @@ export class MembershipService {
       throw new BadRequestException('Багц эсвэл хоногийн тоог заана уу');
     }
 
-    return this.ds.transaction(async (m) => {
+    let member: Member | null = null;
+
+    const result = await this.ds.transaction(async (m) => {
       // Мөрийг түгжинэ — хоёр ажилтан зэрэг сунгавал огноо алдагдахгүй.
-      const member = await m
+      member = await m
         .getRepository(Member)
         .findOne({ where: { id: input.memberId }, lock: { mode: 'pessimistic_write' } });
       if (!member) throw new NotFoundException('Гишүүн олдсонгүй');
@@ -214,6 +220,13 @@ export class MembershipService {
       );
       return saved;
     });
+
+    // ⚠ Гүйлгээний ДОТОР мэдэгдэл илгээхгүй: мэйл удаан бол мөрийн
+    // түгжээ удаан баригдаж, зэрэг сунгалт хүлээнэ.
+    if (member) {
+      await this.notifyLarge(member, Number(result.amount), result.packageName);
+    }
+    return result;
   }
 
   /** Ажилтны гараас ирсэн хүсэлт — эрхийн шалгалттай. */
@@ -535,6 +548,30 @@ export class MembershipService {
       },
       m,
     );
+  }
+
+  /**
+   * Том дүнтэй төлбөрийг ТЭР ДАРУЙ мэдэгдэнэ.
+   *
+   * ⚠ Мэйл унасан ч сунгалт БҮТЭХ ёстой. Мэдэгдэл нь туслах зүйл —
+   * түүний алдаа мөнгө хүлээн авахыг зогсоовол хамаагүй муу.
+   */
+  private async notifyLarge(m: Member, amount: number, packageName: string | null): Promise<void> {
+    try {
+      const min = this.config.get<number>('mail.largePayment') ?? 1_000_000;
+      if (amount < min) return;
+      const t = largePayment({
+        memberName: m.name,
+        packageName: packageName ?? '—',
+        amount,
+        at: new Date().toLocaleString('sv-SE', {
+          timeZone: this.config.get<string>('timezone') ?? 'Asia/Ulaanbaatar',
+        }),
+      });
+      await this.mail.notify(MailEvent.LARGE_PAYMENT, t.subject, t.html, 'large_payment');
+    } catch (e) {
+      this.log.warn(`Том төлбөрийн мэдэгдэл явсангүй: ${(e as Error).message}`);
+    }
   }
 
   /**

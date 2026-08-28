@@ -19,6 +19,7 @@ import { LockerModule } from './modules/locker/locker.module';
 import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 import { MemberModule } from './modules/member/member.module';
 import { MembershipModule } from './modules/membership/membership.module';
+import { MailModule } from './modules/mail/mail.module';
 import { OutboxModule } from './modules/outbox/outbox.module';
 import { PackageModule } from './modules/package/package.module';
 import { PublicModule } from './modules/public/public.module';
@@ -60,6 +61,7 @@ import { StaffModule } from './modules/staff/staff.module';
     AuthModule,
     SettingsModule,
     AuditModule,
+    MailModule,
     OutboxModule,
     StaffModule,
     PackageModule,
