@@ -11,8 +11,6 @@ import { ReconcileService } from '../loyalty/reconcile.service';
 import { ReminderService } from '../loyalty/reminder.service';
 import { AuditService } from '../audit/audit.service';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
-import { DEVICE_TOPICS } from '../device/device-sync.service';
-import { OutboxService } from '../outbox/outbox.service';
 import { MembershipScheduler } from './membership.scheduler';
 
 /**
@@ -35,7 +33,6 @@ export class SyncJobsController {
     private readonly deviceReconcile2: DeviceReconcileService,
     private readonly acsPoller: AcsEventPoller,
     private readonly deviceAuditSvc: DeviceAuditService,
-    private readonly outbox: OutboxService,
     private readonly audit: AuditService,
   ) {}
 
@@ -142,39 +139,83 @@ export class SyncJobsController {
     return this.deviceAuditSvc.run();
   }
 
-  /**
-   * Терминал дээрх ИЛҮҮ хэрэглэгчийг устгах — ГАРААР баталгаажуулсны дараа.
-   *
-   * ⚠ Дуудагчийн өгсөн жагсаалтыг ШУУД хэрэглэхгүй: терминалаас дахин
-   * тооцоолсон `extras`-тай ТААРСАН дугаарыг л устгана. Дэлгэц нээснээс
-   * хойш гишүүн бүртгэгдсэн бол түүний хэрэглэгч санамсаргүй устахгүй.
-   */
-  @Post('device-audit/remove-extras')
-  @ApiOperation({ summary: 'Терминал дээрх илүү хэрэглэгчийг устгах' })
-  async removeExtras(
-    @Body() body: { employeeNos?: number[] },
+  // ── Мөр тус бүрийн үйлдэл — ажилтан ЧИГЛЭЛИЙГ сонгоно ──
+  //
+  // ⚠ «Бүгдийг устга» гэсэн бөөнөөр устгах товч ЗОРИУДААР байхгүй.
+  // Терминал дээрх танихгүй хэрэглэгч бүр өөр шалтгаантай — нэг нь
+  // ажилтан, нөгөө нь бүртгэл алдагдсан гишүүн байж болно. Бөөнөөр
+  // устгах нь тэр ялгааг харахгүйгээр шийдэхэд хүргэнэ.
+
+  /** WinFit → терминал: гишүүнийг терминал дээр дарж бичих. */
+  @Roles(Role.MANAGER)
+  @Post('device-audit/push')
+  @ApiOperation({ summary: 'WinFit → терминал (нэг гишүүн)' })
+  async auditPush(
+    @Body() body: { employeeNo?: number },
     @CurrentUser() user: AuthUser,
   ) {
-    const diff = await this.deviceAuditSvc.diff();
-    const asked = new Set(body.employeeNos ?? []);
-    const safe = diff.extras.filter((e) => asked.has(e.employeeNo));
-    if (!safe.length) throw new BadRequestException('Устгах хэрэглэгч алга');
-
-    for (const e of safe) {
-      await this.outbox.enqueue({
-        topic: DEVICE_TOPICS.USER_DELETE_NO,
-        payload: { employeeNo: e.employeeNo },
-        // Гишүүнгүй тул `member:` бүлэг ашиглахгүй — өөрийн бүлэгтэй.
-        groupKey: `device-user:${e.employeeNo}`,
-      });
-    }
+    const no = this.employeeNo(body.employeeNo);
+    const r = await this.deviceAuditSvc.push(no);
     await this.audit.record({
       staffUserId: user.id,
-      action: 'device.removeExtras',
+      action: 'device.auditPush',
       entity: 'device',
-      entityId: 'terminal',
-      after: { removed: safe.map((e) => `${e.employeeNo} ${e.name}`) },
+      entityId: String(no),
+      after: { employeeNo: no },
     });
-    return { queued: safe.length, users: safe };
+    return r;
+  }
+
+  /**
+   * Терминал → WinFit: терминалын утгыг WinFit рүү авах.
+   *
+   * ⚠ Хэвийн урсгалын ЭСРЭГ чиглэл — эрхийн огноог терминалаас авах нь
+   * төлбөрийн бүртгэлтэй зөрчилдөж болно. Тиймээс ADMIN эрхтэй.
+   */
+  @Roles(Role.ADMIN)
+  @Post('device-audit/pull')
+  @ApiOperation({ summary: 'Терминал → WinFit (нэг хэрэглэгч)' })
+  async auditPull(
+    @Body() body: { employeeNo?: number },
+    @CurrentUser() user: AuthUser,
+  ) {
+    const no = this.employeeNo(body.employeeNo);
+    const r = await this.deviceAuditSvc.pull(no);
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'device.auditPull',
+      entity: 'member',
+      entityId: r.memberId,
+      after: { employeeNo: no, name: r.name, action: r.action },
+    });
+    return r;
+  }
+
+  /** Терминалаас НЭГ хэрэглэгчийг устгах (зөвхөн WinFit-д бүртгэлгүйг). */
+  @Roles(Role.ADMIN)
+  @Post('device-audit/remove')
+  @ApiOperation({ summary: 'Терминалаас устгах (нэг хэрэглэгч)' })
+  async auditRemove(
+    @Body() body: { employeeNo?: number },
+    @CurrentUser() user: AuthUser,
+  ) {
+    const no = this.employeeNo(body.employeeNo);
+    const r = await this.deviceAuditSvc.removeFromDevice(no);
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'device.auditRemove',
+      entity: 'device',
+      entityId: String(no),
+      after: { employeeNo: no },
+    });
+    return r;
+  }
+
+  private employeeNo(v: unknown): number {
+    const n = Number(v);
+    if (!Number.isInteger(n) || n <= 0) {
+      throw new BadRequestException('employeeNo буруу байна');
+    }
+    return n;
   }
 }

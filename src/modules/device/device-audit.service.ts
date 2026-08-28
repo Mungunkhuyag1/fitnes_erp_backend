@@ -1,6 +1,13 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
+import { randomBytes } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 import { MemberStatus } from '../../common/enums/member-status.enum';
@@ -8,6 +15,25 @@ import { Member } from '../member/member.entity';
 import { OutboxService } from '../outbox/outbox.service';
 import { DEVICE_TOPICS, deviceValidity, memberGroup } from './device-sync.service';
 import { DEVICE_GATEWAY, type DeviceGateway } from './device.gateway';
+
+/** Нэг талбарын зөрүү — хоёр талын утгыг ЗЭРЭГ харуулна. */
+export interface FieldDiff {
+  field: string;
+  winfit: string;
+  device: string;
+}
+
+/**
+ * Хоёр талд байгаа ч зөрүүтэй гишүүн.
+ *
+ * ⚠ Зөвхөн «зөрүүтэй» гэж хэлэхэд ажилтан юуг нь засахаа мэдэхгүй —
+ * ЯГ ЯМАР талбар, ЯМАР утгууд зөрсөнийг харуулна.
+ */
+export interface DriftRow {
+  employeeNo: number;
+  name: string;
+  fields: FieldDiff[];
+}
 
 /** Терминал дээр байгаа ч WinFit-д тохирох гишүүнгүй мөр. */
 export interface ExtraUser {
@@ -30,7 +56,7 @@ export interface DeviceAuditDiff {
    * Хоёр талд байгаа ч ЭРХИЙН ЦОНХ зөрсөн — нэвтрэлтэд НӨЛӨӨЛНӨ.
    * Автоматаар засна.
    */
-  drift: { employeeNo: number; name: string; reason: string }[];
+  drift: DriftRow[];
   /**
    * Зөвхөн НЭР зөрсөн — нэвтрэлтэд нөлөөлөхгүй.
    *
@@ -39,7 +65,7 @@ export interface DeviceAuditDiff {
    * Автоматаар засвал шөнө бүр бүх хэрэглэгчийг дахин бичих болно —
    * тиймээс зөвхөн МЭДЭЭЛНЭ. Засах бол `resync-all`.
    */
-  nameDiff: { employeeNo: number; winfit: string; device: string }[];
+  nameDiff: DriftRow[];
   /** Терминал дээр байгаа ч WinFit-д алга — АВТОМАТААР УСТГАХГҮЙ. */
   extras: ExtraUser[];
 }
@@ -52,6 +78,10 @@ export interface DeviceAuditResult extends DeviceAuditDiff {
 /** Огноог өдрийн нарийвчлалаар харьцуулна. */
 const day = (d: Date | null): string | null =>
   d ? `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}` : null;
+
+/** Дэлгэцэд харуулах огноо. */
+const text = (d: Date | null): string =>
+  d ? d.toISOString().slice(0, 10) : '—';
 
 /**
  * Терминал дээрх хэрэглэгчийг WinFit-тэй ТУЛГАНА.
@@ -135,6 +165,132 @@ export class DeviceAuditService {
     return { ...diff, queued };
   }
 
+  // ══════════════════════════════════════════════════════════════
+  //  Мөр тус бүрийн үйлдэл — ажилтан ЧИГЛЭЛИЙГ өөрөө сонгоно
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * WinFit → терминал: нэг гишүүнийг терминал дээр дарж бичнэ.
+   *
+   * «Терминал дээр алга», «зөрүүтэй», «нэр зөрсөн» гурвуулан дээр
+   * ажиллана — бүгд нь «WinFit-ийнхээр болго» гэсэн нэг үйлдэл.
+   */
+  async push(employeeNo: number): Promise<{ queued: number }> {
+    const m = await this.members.findOne({
+      where: { memberNo: employeeNo },
+      select: { id: true },
+    });
+    if (!m) {
+      throw new NotFoundException(`№${employeeNo} WinFit-д бүртгэлгүй байна`);
+    }
+    await this.outbox.enqueue({
+      topic: DEVICE_TOPICS.USER_UPSERT,
+      payload: { memberId: m.id },
+      groupKey: memberGroup(m.id),
+    });
+    return { queued: 1 };
+  }
+
+  /**
+   * Терминал → WinFit: терминал дээрх утгыг WinFit рүү авна.
+   *
+   * ⚠ ХЭВИЙН УРСГАЛЫН ЭСРЭГ. Гишүүнчлэл, төлбөрийн эх сурвалж нь WinFit
+   * бөгөөд эрхийн огноог терминалаас авах нь төлбөрийн бүртгэлтэй
+   * зөрчилдөж болно. Тиймээс энэ нь АВТОМАТ БИШ — ажилтан мөр тус бүр
+   * дээр зориудаар сонгоно.
+   *
+   * Хоёр тохиолдол:
+   *  • Гишүүн байхгүй → терминалын мэдээллээр ШИНЭ гишүүн үүсгэнэ
+   *  • Гишүүн байгаа  → нэр, дуусах огноо, төлвийг терминалынхаар солино
+   */
+  async pull(employeeNo: number): Promise<{
+    action: 'created' | 'updated';
+    memberId: string;
+    name: string;
+  }> {
+    const users = await this.device.listUsers();
+    const u = users.find((x) => x.employeeNo === employeeNo);
+    if (!u) {
+      throw new NotFoundException(`№${employeeNo} терминал дээр байхгүй байна`);
+    }
+
+    // ⚠ Терминалын нэр «Бат ub93052012» хэлбэртэй байж болно —
+    // бүртгэлийн дугаарыг тусад нь салгана (импорттой ижил дүрэм).
+    const full = (u.name ?? '').trim() || `№${employeeNo}`;
+    const rx = /^(.*?)[\s]+([A-Za-zА-Яа-яӨөҮү]{2}\d{6,8}[a-z0-9]*)$/u;
+    const m = rx.exec(full);
+    const name = m ? m[1].trim() : full;
+    const register = m ? m[2].toUpperCase() : null;
+
+    // Төлөв нь ОГНООНООС гарна — терминалын `enable` нь хугацаа дууссан
+    // ч `true` хэвээр үлддэг (импортын үед 245/339 дээр ажиглагдсан).
+    const now = new Date();
+    let status: MemberStatus;
+    if (!u.end) status = MemberStatus.LEAD;
+    else if (!u.enable) status = MemberStatus.SUSPENDED;
+    else status = u.end > now ? MemberStatus.ACTIVE : MemberStatus.EXPIRED;
+
+    const existing = await this.members.findOne({ where: { memberNo: employeeNo } });
+    if (existing) {
+      existing.name = name;
+      if (register) existing.register = register;
+      existing.accessEndsAt = u.end;
+      existing.status = status;
+      // Терминалынхаар болгосон тул зөрүү арилсан — синк цэвэр.
+      existing.hikSyncedAt = now;
+      existing.hikSyncError = null;
+      await this.members.save(existing);
+      this.log.warn(`Терминалаас авав: №${employeeNo} ${name} (шинэчлэв)`);
+      return { action: 'updated', memberId: existing.id, name };
+    }
+
+    const created = await this.members.save(
+      this.members.create({
+        memberNo: employeeNo,
+        name,
+        register,
+        // ⚠ Терминалд утас ХАДГАЛАГДДАГГҮЙ — Loopy карт үүсгэхийн тулд
+        // ажилтан гараар оруулна. Дэлгэц үүнийг анхааруулна.
+        phone: null,
+        note: `терминалаас авав №${employeeNo}`,
+        status,
+        accessEndsAt: u.end,
+        payToken: randomBytes(24).toString('base64url'),
+        // Терминал дээр аль хэдийн байгаа тул дахин бичих шаардлагагүй.
+        hikSyncedAt: now,
+        createdAt: u.begin ?? now,
+      }),
+    );
+    this.log.warn(`Терминалаас авав: №${employeeNo} ${name} (шинээр үүсгэв)`);
+    return { action: 'created', memberId: created.id, name };
+  }
+
+  /**
+   * Терминалаас НЭГ хэрэглэгчийг устгана.
+   *
+   * ⚠ Зөвхөн WinFit-д бүртгэлгүй (`extras`) хэрэглэгч дээр. Бүртгэлтэй
+   * гишүүнийг энэ замаар устгавал WinFit нь түүнийг «терминал дээр
+   * байгаа» гэж бодсоор байх бөгөөд шөнийн тулгалт дахин үүсгэнэ.
+   */
+  async removeFromDevice(employeeNo: number): Promise<{ queued: number }> {
+    const known = await this.members.findOne({
+      where: { memberNo: employeeNo },
+      select: { id: true, name: true },
+    });
+    if (known) {
+      throw new BadRequestException(
+        `№${employeeNo} нь WinFit-д бүртгэлтэй («${known.name}») — ` +
+          `гишүүнийг цуцлах замаар устгана`,
+      );
+    }
+    await this.outbox.enqueue({
+      topic: DEVICE_TOPICS.USER_DELETE_NO,
+      payload: { employeeNo },
+      groupKey: `device-user:${employeeNo}`,
+    });
+    return { queued: 1 };
+  }
+
   /**
    * ЗӨВХӨН харьцуулна — юу ч бичихгүй.
    *
@@ -175,8 +331,8 @@ export class DeviceAuditService {
 
       const onDevice = new Map(deviceUsers.map((u) => [u.employeeNo, u]));
       const missing: DeviceAuditDiff['missing'] = [];
-      const drift: DeviceAuditDiff['drift'] = [];
-      const nameDiff: DeviceAuditDiff['nameDiff'] = [];
+      const drift: DriftRow[] = [];
+      const nameDiff: DriftRow[] = [];
 
       for (const m of rows) {
         const d = onDevice.get(m.memberNo);
@@ -187,17 +343,39 @@ export class DeviceAuditService {
         // ⚠ WinFit ЯГ ЮУ БИЧИХ БАЙСАН бэ гэдэгтэй харьцуулна — өөрийн
         // дүрэм зохиовол хэзээ ч арилахгүй хуурамч зөрүү үүснэ.
         const want = deviceValidity(m);
-        const reasons: string[] = [];
-        if (day(d.end) !== day(want.end)) reasons.push('дуусах огноо');
-        if (d.enable !== want.enable) reasons.push('идэвх');
-        if (d.name !== m.name) {
-          nameDiff.push({ employeeNo: m.memberNo, winfit: m.name, device: d.name });
+        const fields: FieldDiff[] = [];
+        if (day(d.end) !== day(want.end)) {
+          fields.push({
+            field: 'Дуусах огноо',
+            winfit: text(want.end),
+            device: text(d.end),
+          });
         }
-        if (reasons.length) {
+        if (d.enable !== want.enable) {
+          fields.push({
+            field: 'Идэвх',
+            winfit: want.enable ? 'Идэвхтэй' : 'Зогсоосон',
+            device: d.enable ? 'Идэвхтэй' : 'Зогсоосон',
+          });
+        }
+        const nameField: FieldDiff | null =
+          d.name !== m.name
+            ? { field: 'Нэр', winfit: m.name, device: d.name }
+            : null;
+
+        if (fields.length) {
+          // Нэр нь бас зөрсөн бол ЭНД хамт харуулна — нэг гишүүнийг
+          // хоёр жагсаалтад тараавал ажилтан бүтэн зургийг харахгүй.
           drift.push({
             employeeNo: m.memberNo,
             name: m.name,
-            reason: reasons.join(', '),
+            fields: nameField ? [...fields, nameField] : fields,
+          });
+        } else if (nameField) {
+          nameDiff.push({
+            employeeNo: m.memberNo,
+            name: m.name,
+            fields: [nameField],
           });
         }
       }
