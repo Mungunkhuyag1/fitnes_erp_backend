@@ -55,6 +55,27 @@ export class Member {
    * Төрсөн огноо — ЗӨВХӨН огноо (цаггүй), тиймээс `date` төрөл.
    * Насны бүлгийн тайлан, төрсөн өдрийн мэндчилгээнд.
    */
+  /**
+   * Регистрийн дугаар — терминалаас импортлоход нэрнээс салгасан.
+   *
+   * ⚠ UNIQUE БИШ: терминал дээр давхардсан, буруу бичигдсэн утга байж
+   * болзошгүй бөгөөд импортыг тэр шалтгаанаар зогсоох нь буруу.
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  register: string | null;
+
+  /**
+   * Царайн зургийн ЗАМ (өөрийн хадгалалт).
+   *
+   * ⚠ Терминалын `faceURL`-ыг хадгалахгүй — тэр нь дотоод хаяг тул
+   * IP солигдох, терминал солигдоход утгагүй болно.
+   */
+  @Column({ name: 'photo_path', type: 'varchar', length: 300, nullable: true })
+  photoPath: string | null;
+
+  @Column({ name: 'photo_at', type: 'timestamptz', nullable: true })
+  photoAt: Date | null;
+
   @Column({ name: 'birth_date', type: 'date', nullable: true })
   birthDate: string | null;
 
