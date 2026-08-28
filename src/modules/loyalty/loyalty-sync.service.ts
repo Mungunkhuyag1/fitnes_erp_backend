@@ -61,6 +61,14 @@ export class LoyaltySyncService implements OnModuleInit {
   onModuleInit(): void {
     this.registry.register(LOYALTY_TOPICS.ALLOW_PHONE, (p) =>
       this.withMember(p, async (m) => {
+        // ⚠ Терминалаас импортлосон гишүүн утасгүй байж болно. Loopy-д
+        // утас нь ГОЛ ТҮЛХҮҮР тул түүнгүйгээр нэмэх боломжгүй.
+        // Алдаа шидэхгүй — dashboard дээр «утас оруулах» гэж
+        // анхааруулна, ажилтан оруулмагц дахин дараалалд орно.
+        if (!m.phone) {
+          this.log.debug(`№${m.memberNo} утасгүй — Loopy алгаслаа`);
+          return;
+        }
         await this.client.allowPhone(m.phone, m.name, `WinFit №${m.memberNo}`);
         // Амжилттай болсныг ТЭМДЭГЛЭНЭ. Үүнгүй бол «Loopy руу хүрээгүй» ба
         // «хүрсэн ч гишүүн карт үүсгээгүй» хоёр ялгагдахгүй — ажилтан юу

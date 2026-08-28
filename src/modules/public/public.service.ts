@@ -94,7 +94,8 @@ export class PublicService {
     return {
       gymName,
       name: member.name,
-      phone: maskPhone(member.phone),
+      // Утасгүй гишүүн (терминалаас импортлосон) — маск хийх зүйл алга.
+      phone: member.phone ? maskPhone(member.phone) : null,
       status: member.status,
       accessEndsAt: member.accessEndsAt,
       daysLeft: member.accessEndsAt

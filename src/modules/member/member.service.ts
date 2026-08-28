@@ -119,7 +119,7 @@ export interface MemberRow {
   id: string;
   memberNo: number;
   name: string;
-  phone: string;
+  phone: string | null;
   status: MemberStatus;
   accessEndsAt: Date | null;
   daysLeft: number | null;
@@ -218,6 +218,7 @@ export class MemberService {
   async list(q: ListMembersDto): Promise<PageResult<MemberRow>> {
     const qb = this.repo.createQueryBuilder('m');
 
+    if (q.noPhone) qb.andWhere('m.phone IS NULL');
     if (q.q?.trim()) {
       const term = q.q.trim();
       // Утсаар хайхад нормчилсон хэлбэрээр — «+976 9911» гэж бичсэн ч олдоно.
@@ -363,7 +364,9 @@ export class MemberService {
 
   async update(id: string, dto: UpdateMemberDto): Promise<MemberDetail> {
     const m = await this.find(id);
-    let phoneChanged: { from: string; to: string } | null = null;
+    // `from` нь NULL байж болно: терминалаас импортлосон утасгүй
+    // гишүүнд ажилтан анх удаа дугаар оруулах тохиолдол.
+    let phoneChanged: { from: string | null; to: string } | null = null;
 
     if (dto.phone !== undefined) {
       const phone = this.requirePhone(dto.phone);
@@ -408,11 +411,17 @@ export class MemberService {
       if (phoneChanged) {
         await this.outbox.enqueue(
           [
-            {
-              topic: LOYALTY_TOPICS.DISALLOW_PHONE,
-              payload: { phone: phoneChanged.from },
-              groupKey: loyaltyGroup(m.id),
-            },
+            // Хуучин дугаар БАЙСАН бол л Loopy-гоос хасна. Утасгүй
+            // гишүүнд анх удаа оруулахад хасах зүйл байхгүй.
+            ...(phoneChanged.from
+              ? [
+                  {
+                    topic: LOYALTY_TOPICS.DISALLOW_PHONE,
+                    payload: { phone: phoneChanged.from },
+                    groupKey: loyaltyGroup(m.id),
+                  },
+                ]
+              : []),
             {
               topic: LOYALTY_TOPICS.ALLOW_PHONE,
               payload: { memberId: m.id },

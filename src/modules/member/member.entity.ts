@@ -34,10 +34,16 @@ export class Member {
   @Column({ type: 'varchar', length: 120 })
   name: string;
 
-  /** Нормчилсон 8 оронтой дугаар (common/utils/phone.util.ts). */
+  /**
+   * Нормчилсон 8 оронтой дугаар (common/utils/phone.util.ts).
+   *
+   * ⚠ NULL байж БОЛНО — терминалаас импортлосон гишүүн утасгүй ирдэг.
+   * Тийм гишүүн Loopy-тэй холбогдохгүй тул dashboard дээр анхааруулга
+   * харуулна. Гараар бүртгэхэд утас ЗААВАЛ хэвээр (DTO шалгана).
+   */
   @Index('uq_members_phone', { unique: true })
   @Column({ type: 'varchar', length: 8 })
-  phone: string;
+  phone: string | null;
 
   @Column({ type: 'varchar', length: 160, nullable: true })
   email: string | null;

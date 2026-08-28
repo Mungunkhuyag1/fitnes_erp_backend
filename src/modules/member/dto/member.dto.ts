@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsIn,
@@ -149,6 +150,14 @@ export class UpdateMemberDto {
 }
 
 export class ListMembersDto extends PageQueryDto {
+  @ApiPropertyOptional({ description: 'Утасгүй гишүүд (Loopy холбогдохгүй)' })
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === 'true' || value === true ? true : undefined,
+  )
+  @IsBoolean()
+  noPhone?: boolean;
+
   @ApiPropertyOptional({ description: 'Нэр эсвэл утсаар хайх' })
   @IsOptional()
   @IsString()

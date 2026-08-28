@@ -20,6 +20,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "jest",
     "seed:admin": "ts-node -r tsconfig-paths/register src/database/seeds/seed-admin.ts",
+    "import:device": "ts-node -r tsconfig-paths/register src/database/seeds/import-device.ts",
     "seed:sample": "ts-node -r tsconfig-paths/register src/database/seeds/seed-sample.ts",
     "seed:demo": "ts-node -r tsconfig-paths/register src/database/seeds/seed-demo.ts",
     "export-device": "ts-node -r tsconfig-paths/register scripts/export-device.ts",

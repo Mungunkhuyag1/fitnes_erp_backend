@@ -100,6 +100,11 @@ export class ReportService {
 
         (SELECT count(*) FROM members
           WHERE NOT face_enrolled AND status <> 'cancelled') AS face_missing,
+        -- ⚠ Утасгүй гишүүн Loopy-тэй ХОЛБОГДОХГҮЙ: тэнд утас нь гол
+        -- түлхүүр. Терминалаас импортлосон гишүүд бүгд утасгүй ирдэг
+        -- тул энэ нь ресепшний хамгийн том ажил болно.
+        (SELECT count(*) FROM members
+          WHERE phone IS NULL AND status <> 'cancelled') AS no_phone,
         (SELECT count(*) FROM members WHERE hik_sync_error IS NOT NULL) AS sync_error_members,
         (SELECT count(*) FROM outbox WHERE status = 'failed')  AS outbox_failed,
         (SELECT count(*) FROM outbox WHERE status = 'pending') AS outbox_pending,
@@ -159,6 +164,7 @@ export class ReportService {
         withoutCard: n('expiring_no_card'),
       },
       faceNotEnrolled: n('face_missing'),
+      noPhone: n('no_phone'),
       lockers: {
         keysOut: n('keys_out'),
         overdueRentals: n('lockers_overdue'),

@@ -95,7 +95,11 @@ export class ReconcileService {
       where: { status: Not(In([MemberStatus.CANCELLED])) },
       select: { phone: true },
     });
-    const inWinfit = new Set(eligible.map((m) => m.phone));
+    // ⚠ Утасгүй гишүүн Loopy-д ОГТ байж чадахгүй тул тулгалтад
+    // оруулахгүй — эс бөгөөс «дутуу» гэж мөнх харагдана.
+    const inWinfit = new Set(
+      eligible.map((m) => m.phone).filter((p): p is string => !!p),
+    );
     const inLoopy = new Set(allowed.map((a) => a.phone));
     return {
       extras: allowed.map((a) => a.phone).filter((p) => !inWinfit.has(p)),
@@ -180,9 +184,13 @@ export class ReconcileService {
         select: { id: true, memberNo: true, name: true, phone: true },
       });
 
-      const inWinfit = new Set(eligible.map((m) => m.phone));
+      const inWinfit = new Set(
+        eligible.map((m) => m.phone).filter((p): p is string => !!p),
+      );
       const confirmed: string[] = [];
       for (const m of eligible) {
+        // Утасгүй бол Loopy руу нэмэх боломжгүй — алгасна.
+        if (!m.phone) continue;
         if (inLoopy.has(m.phone)) {
           confirmed.push(m.id);
           continue;
@@ -281,6 +289,7 @@ export class ReconcileService {
     const justLinked = new Set<string>();
 
     for (const m of unlinked) {
+      if (!m.phone) continue; // утасгүй — картаар холбох арга алга
       const card = byPhone.get(m.phone);
       if (!card) continue;
       await this.members.update(m.id, { loopyCardSerial: card.serialNumber });
