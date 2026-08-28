@@ -10,7 +10,13 @@ import {
 export enum MailEvent {
   /** Өдрийн орлогын хураангуй — 23:00. */
   DAILY_INCOME = 'daily_income',
-  /** Том дүнтэй төлбөр — тэр даруй. */
+  /**
+   * Төлбөр орсон — тэр даруй.
+   *
+   * `MAIL_LARGE_PAYMENT`-аас ДЭЭШ дүнд л явна. Хязгаарыг 0 болговол
+   * төлбөр бүрд явна — гэхдээ өдөрт 10 төлбөр байвал сард 300 мэйл
+   * болно гэдгийг санаарай.
+   */
   LARGE_PAYMENT = 'large_payment',
   /** Терминалын синк бүтэлгүйтсэн — тэр даруй. */
   SYNC_FAILED = 'sync_failed',
@@ -18,7 +24,7 @@ export enum MailEvent {
 
 export const MAIL_EVENT_LABEL: Record<MailEvent, string> = {
   [MailEvent.DAILY_INCOME]: 'Өдрийн орлогын хураангуй',
-  [MailEvent.LARGE_PAYMENT]: 'Том дүнтэй төлбөр',
+  [MailEvent.LARGE_PAYMENT]: 'Төлбөр орсон',
   [MailEvent.SYNC_FAILED]: 'Синк бүтэлгүйтсэн',
 };
 

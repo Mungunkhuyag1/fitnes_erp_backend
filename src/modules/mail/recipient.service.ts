@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { CreateRecipientDto, UpdateRecipientDto } from './dto/mail.dto';
@@ -24,6 +25,7 @@ export class MailRecipientService {
     @InjectRepository(EmailLog) private readonly logs: Repository<EmailLog>,
     private readonly provider: MailProvider,
     private readonly mail: MailService,
+    private readonly config: ConfigService,
   ) {}
 
   async list() {
@@ -32,6 +34,9 @@ export class MailRecipientService {
       // Дэлгэц «яагаад мэйл ирэхгүй байна вэ» гэдгийг ЭНДЭЭС мэднэ:
       // хаяг бүртгэлтэй ч горим stub бол юу ч явахгүй.
       configured: this.provider.configured,
+      // Ямар дүнгээс дээш шууд мэдэгдэхийг ажилтан ХАРАХ ёстой —
+      // эс бөгөөс «яагаад энэ төлбөрт мэйл ирээгүй вэ» гэж гайхна.
+      largePaymentFrom: this.config.get<number>('mail.largePayment') ?? 0,
       events: Object.entries(MAIL_EVENT_LABEL).map(([value, label]) => ({
         value,
         label,

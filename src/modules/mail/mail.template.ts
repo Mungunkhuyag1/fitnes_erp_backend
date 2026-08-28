@@ -71,10 +71,13 @@ export function largePayment(p: {
   amount: number;
   at: string;
 }): { subject: string; html: string } {
+  // ⚠ «Том төлбөр» гэж бичихгүй: хязгаарыг админ өөрөө тохируулдаг тул
+  // 100,000₮ болговол ердийн 250,000₮-ийн худалдан авалт бүр «том»
+  // гэж ирнэ. Хэлбэлзэхгүй үг сонгоно.
   return {
-    subject: `WinFit — том төлбөр: ${money(p.amount)}`,
+    subject: `WinFit — төлбөр: ${money(p.amount)}`,
     html: WRAP(
-      'Том дүнтэй төлбөр',
+      'Төлбөр орлоо',
       `<table style="width:100%;border-collapse:collapse">
          ${row('Дүн', money(p.amount), true)}
          ${row('Гишүүн', p.memberName)}
