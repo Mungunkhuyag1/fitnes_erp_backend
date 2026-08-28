@@ -6,6 +6,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { PackageAudience } from '../../common/enums/audience.enum';
 
 /**
  * Гишүүнчлэлийн багц — ЗӨВХӨН хугацаа (хоног).
@@ -28,6 +29,41 @@ export class Package {
   /** Үнэ — төгрөгөөр БҮХЭЛ тоо (мөнгөн тэмдэгтгүй). */
   @Column({ type: 'bigint' })
   price: string;
+
+  /**
+   * Хэнд зориулсан багц вэ.
+   *
+   * Ижил хугацаа өөр үнэтэй байдгийг тайлбарладаг цорын ганц талбар:
+   * 30 хоног нь энгийн хүнд 250,000₮, оюутанд 160,000₮.
+   */
+  @Column({ type: 'varchar', length: 20, default: PackageAudience.STANDARD })
+  audience: PackageAudience;
+
+  /**
+   * Худалдан авахад баримт шалгуулах шаардлагатай эсэх.
+   *
+   * `true` үед онлайн төлбөр хийгдсэн ч эрх АВТОМАТААР нээгдэхгүй —
+   * ресепшн дээр баримт үзүүлж, ажилтан гараар нээнэ.
+   */
+  @Column({ name: 'requires_proof', type: 'boolean', default: false })
+  requiresProof: boolean;
+
+  /** Зөвхөн өмнө нь гишүүнчлэл аваагүй хүнд («анх удаа 188,000₮»). */
+  @Column({ name: 'first_time_only', type: 'boolean', default: false })
+  firstTimeOnly: boolean;
+
+  /** Хэдэн хүний эрх вэ. Хосын багц = 2, бусад = 1. */
+  @Column({ type: 'int', default: 1 })
+  seats: number;
+
+  /**
+   * Онлайнаар зарагдах уу.
+   *
+   * Хосын багц `false`: хоёр гишүүнийг зэрэг сонгох нь онлайнд
+   * тохирохгүй, ресепшн дээр хоёулаа байгаа тул хормын ажил.
+   */
+  @Column({ type: 'boolean', default: true })
+  online: boolean;
 
   /**
    * Устгахын оронд идэвхгүй болгоно — түүхэн `memberships` мөрүүд багцын

@@ -2,6 +2,7 @@ import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -10,6 +11,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { PackageAudience } from '../../../common/enums/audience.enum';
 import { PageQueryDto } from '../../../common/dto/pagination.dto';
 
 export class CreatePackageDto {
@@ -38,6 +40,35 @@ export class CreatePackageDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @ApiPropertyOptional({ enum: PackageAudience })
+  @IsOptional()
+  @IsEnum(PackageAudience)
+  audience?: PackageAudience;
+
+  @ApiPropertyOptional({ description: 'Ресепшн дээр баримт шалгаж эрхийг нээнэ' })
+  @IsOptional()
+  @IsBoolean()
+  requiresProof?: boolean;
+
+  @ApiPropertyOptional({ description: 'Зөвхөн өмнө гишүүнчлэл аваагүй хүнд' })
+  @IsOptional()
+  @IsBoolean()
+  firstTimeOnly?: boolean;
+
+  @ApiPropertyOptional({ example: 1, description: 'Хосын багц = 2' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(2)
+  seats?: number;
+
+  @ApiPropertyOptional({ description: 'Онлайнаар зарагдах уу' })
+  @IsOptional()
+  @IsBoolean()
+  online?: boolean;
+
 }
 
 export class UpdatePackageDto {
@@ -74,6 +105,35 @@ export class UpdatePackageDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @ApiPropertyOptional({ enum: PackageAudience })
+  @IsOptional()
+  @IsEnum(PackageAudience)
+  audience?: PackageAudience;
+
+  @ApiPropertyOptional({ description: 'Ресепшн дээр баримт шалгаж эрхийг нээнэ' })
+  @IsOptional()
+  @IsBoolean()
+  requiresProof?: boolean;
+
+  @ApiPropertyOptional({ description: 'Зөвхөн өмнө гишүүнчлэл аваагүй хүнд' })
+  @IsOptional()
+  @IsBoolean()
+  firstTimeOnly?: boolean;
+
+  @ApiPropertyOptional({ example: 1, description: 'Хосын багц = 2' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(2)
+  seats?: number;
+
+  @ApiPropertyOptional({ description: 'Онлайнаар зарагдах уу' })
+  @IsOptional()
+  @IsBoolean()
+  online?: boolean;
+
 }
 
 export class ListPackagesDto extends PageQueryDto {

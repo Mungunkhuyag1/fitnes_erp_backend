@@ -87,6 +87,7 @@ export class MembershipService {
       const pkg = await this.packages.findOne({ where: { id: input.packageId } });
       if (!pkg) throw new NotFoundException('Багц олдсонгүй');
       if (!pkg.active) throw new BadRequestException('Багц идэвхгүй байна');
+      await this.assertFirstTime(pkg, input.memberId);
       days = pkg.days;
       packageName = pkg.name;
     }
@@ -534,5 +535,27 @@ export class MembershipService {
       },
       m,
     );
+  }
+
+  /**
+   * «Анх удаа» багцыг зөвхөн ШИНЭ гишүүнд.
+   *
+   * 188,000₮ нь 250,000₮-ийн оронд — ялгаа нь 62,000₮. Хэрэв шалгахгүй
+   * бол гишүүн сар бүр «анх удаа»-г сонгож, заалан жилд 744,000₮ алдана.
+   *
+   * ⚠ Буцаагдсан (`reversed_at`) гишүүнчлэлийг тоолохгүй: алдаатай
+   * бичилтийг засварласан хүн «анх удаа»-гаа алдах ёсгүй.
+   */
+  private async assertFirstTime(pkg: Package, memberId: string): Promise<void> {
+    if (!pkg.firstTimeOnly) return;
+    const prior = await this.repo.count({
+      where: { memberId, reversedAt: IsNull() },
+    });
+    if (prior > 0) {
+      throw new BadRequestException(
+        `«${pkg.name}» нь зөвхөн анх удаа эрх авч буй гишүүнд. ` +
+          'Энэ гишүүн өмнө нь эрх авсан байна.',
+      );
+    }
   }
 }

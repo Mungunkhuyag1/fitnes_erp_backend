@@ -1,6 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import {
+  AUDIENCE_LABEL,
+  PackageAudience,
+} from '../../common/enums/audience.enum';
 import { pageResult, type PageResult } from '../../common/dto/paginated';
 import {
   CreatePackageDto,
@@ -14,6 +18,12 @@ export interface PackageView {
   name: string;
   days: number;
   price: number;
+  audience: PackageAudience;
+  audienceLabel: string;
+  requiresProof: boolean;
+  firstTimeOnly: boolean;
+  seats: number;
+  online: boolean;
   active: boolean;
   sortOrder: number;
   createdAt: Date;
@@ -52,6 +62,11 @@ export class PackageService {
         days: dto.days,
         price: String(dto.price),
         sortOrder: dto.sortOrder ?? 0,
+        audience: dto.audience ?? PackageAudience.STANDARD,
+        requiresProof: dto.requiresProof ?? false,
+        firstTimeOnly: dto.firstTimeOnly ?? false,
+        seats: dto.seats ?? 1,
+        online: dto.online ?? true,
       }),
     );
     return this.view(saved);
@@ -69,6 +84,11 @@ export class PackageService {
     if (dto.price !== undefined) p.price = String(dto.price);
     if (dto.sortOrder !== undefined) p.sortOrder = dto.sortOrder;
     if (dto.active !== undefined) p.active = dto.active;
+    if (dto.audience !== undefined) p.audience = dto.audience;
+    if (dto.requiresProof !== undefined) p.requiresProof = dto.requiresProof;
+    if (dto.firstTimeOnly !== undefined) p.firstTimeOnly = dto.firstTimeOnly;
+    if (dto.seats !== undefined) p.seats = dto.seats;
+    if (dto.online !== undefined) p.online = dto.online;
     return this.view(await this.repo.save(p));
   }
 
@@ -106,6 +126,12 @@ export class PackageService {
       days: p.days,
       // `bigint` нь драйвераас string ирдэг — гадагш тоо болгож өгнө.
       price: Number(p.price),
+      audience: p.audience,
+      audienceLabel: AUDIENCE_LABEL[p.audience] ?? p.audience,
+      requiresProof: p.requiresProof,
+      firstTimeOnly: p.firstTimeOnly,
+      seats: p.seats,
+      online: p.online,
       active: p.active,
       sortOrder: p.sortOrder,
       createdAt: p.createdAt,
