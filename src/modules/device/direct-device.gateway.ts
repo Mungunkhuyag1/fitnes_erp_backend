@@ -156,6 +156,28 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
     await this.guard(() => this.api().openDoor(doorNo ?? this.doorNo));
   }
 
+  /**
+   * Хуудаслаж БҮГДИЙГ татна.
+   *
+   * ⚠ Нэг хуудсаар хязгаарлавал ачаалалтай өдөр эвент алдагдана: бодит
+   * хэмжилтээр өдөрт ~248 эвент бүртгэгддэг.
+   */
+  async fetchEvents(from: Date, to: Date): Promise<Record<string, unknown>[]> {
+    return this.guard(async () => {
+      const out: Record<string, unknown>[] = [];
+      let pos = 0;
+      for (;;) {
+        const r = await this.api().fetchEvents(from, to, pos, 50);
+        out.push(...(r.events as Record<string, unknown>[]));
+        if (!r.events.length || out.length >= r.total) break;
+        pos += r.events.length;
+        // Хамгаалалт: гацахаас сэргийлнэ.
+        if (pos > 5_000) break;
+      }
+      return out;
+    });
+  }
+
   async info(): Promise<DeviceInfo> {
     return this.guard(async () => {
       const d = await this.api().deviceInfo();

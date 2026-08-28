@@ -39,4 +39,8 @@ export class AgentDeviceGateway implements DeviceGateway {
   info(): Promise<DeviceInfo> {
     this.notReady();
   }
+
+  fetchEvents(): Promise<Record<string, unknown>[]> {
+    this.notReady();
+  }
 }

@@ -112,6 +112,9 @@ export const envValidationSchema = Joi.object({
     .allow('')
     .default('')
     .when('DEVICE_GATEWAY', { is: 'direct', then: Joi.string().invalid('').required() }),
+  DEVICE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
+  DEVICE_EVENT_POLL_MS: Joi.number().min(30_000).max(3_600_000).default(300_000),
+  DEVICE_EVENT_WINDOW_MIN: Joi.number().min(1).max(1440).default(15),
   HIK_PORT: Joi.number().default(80),
   HIK_USER: Joi.string().allow('').default('admin'),
   HIK_PASSWORD: Joi.string()

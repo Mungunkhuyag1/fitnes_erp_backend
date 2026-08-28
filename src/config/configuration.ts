@@ -103,6 +103,20 @@ export const configuration = () => ({
     invoiceTtlSec: toInt(process.env.INVOICE_TTL_SEC, 3600),
   },
 
+  device: {
+    /**
+     * Терминалын эвент хүлээн авах ЗАМД шингэсэн нууц.
+     *
+     * Толгойд байрлуулах боломжгүй: терминалын `httpHosts` тохиргоо нь
+     * дурын толгой нэмэхийг дэмждэггүй, зөвхөн URL хүлээж авдаг.
+     */
+    webhookSecret: process.env.DEVICE_WEBHOOK_SECRET ?? '',
+    /** Нөөц татагчийн давтамж, мс. */
+    pollMs: toInt(process.env.DEVICE_EVENT_POLL_MS, 300_000),
+    /** Давхцах цонх, минут — түлхэлт алдагдсаныг нөхнө. */
+    pollWindowMin: toInt(process.env.DEVICE_EVENT_WINDOW_MIN, 15),
+  },
+
   hikvision: {
     /** `DEVICE_GATEWAY=direct` үед терминалтай шууд холбогдох хаяг. */
     host: process.env.HIK_HOST,

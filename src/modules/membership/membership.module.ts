@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AccessModule } from '../access/access.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoyaltyModule } from '../loyalty/loyalty.module';
 import { MemberModule } from '../member/member.module';
@@ -12,6 +13,8 @@ import { SyncJobsController } from './sync-jobs.controller';
 
 @Module({
   imports: [
+    // Ирц татах товч `AcsEventPoller`-ээр дамжина.
+    AccessModule,
     TypeOrmModule.forFeature([Membership, Member, Package]),
     LoyaltyModule,
     MemberModule,

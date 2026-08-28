@@ -66,4 +66,17 @@ export interface DeviceGateway {
   openDoor(doorNo?: number): Promise<void>;
 
   info(): Promise<DeviceInfo>;
+
+  /**
+   * Заасан хугацааны нэвтрэлтийн эвент — НӨӨЦ суваг.
+   *
+   * Гол суваг нь терминалын түлхэлт (`POST /webhooks/device/:secret`).
+   * Гэвч терминал дахин илгээхийг оролддоггүй тул сүлжээ тасрах,
+   * backend дахин ассах үед эвент алдагдана. Энэ нь давхцах цонхоор
+   * татаж түүнийг нөхнө.
+   */
+  fetchEvents(
+    from: Date,
+    to: Date,
+  ): Promise<Record<string, unknown>[]>;
 }

@@ -78,6 +78,18 @@ export class StubDeviceGateway implements DeviceGateway {
     this.log.log(`[STUB] Хаалга ${doorNo} нээгдэв`);
   }
 
+  /**
+   * Stub горимд ирц ТАТАХГҮЙ.
+   *
+   * Хуурамч эвент үүсгэвэл хөгжүүлэлтийн санд утгагүй ирц хуримтлагдаж,
+   * тайлан худал болно. Ирцийг турших бол `/access-events/simulate`
+   * ашиглана — тэр нь ЗОРИУДААР дуудагдана.
+   */
+  async fetchEvents(): Promise<Record<string, unknown>[]> {
+    await this.simulate('fetchEvents');
+    return [];
+  }
+
   async info(): Promise<DeviceInfo> {
     const offline = this.config.get<boolean>('stub.deviceOffline') ?? false;
     return {

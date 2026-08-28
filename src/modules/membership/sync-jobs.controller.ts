@@ -2,6 +2,7 @@ import { Controller, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
+import { AcsEventPoller } from '../access/acs-event-poller.service';
 import { DeviceReconcileService } from '../device/device-reconcile.service';
 import { FaceWatchService } from '../device/face-watch.service';
 import { MemberService } from '../member/member.service';
@@ -27,8 +28,21 @@ export class SyncJobsController {
     private readonly reconcile: ReconcileService,
     private readonly members: MemberService,
     private readonly deviceReconcile2: DeviceReconcileService,
+    private readonly acsPoller: AcsEventPoller,
   ) {}
 
+
+  /**
+   * Терминалаас ирцийг нөхөж татах.
+   *
+   * Хуваарьт нь 5 минут тутам өөрөө ажилладаг. Энэ товч нь «яг одоо
+   * шалгамаар байна» гэсэн тохиолдолд.
+   */
+  @Post('acs-events')
+  @ApiOperation({ summary: 'Терминалаас ирц татах (нөхөх)' })
+  pollEvents() {
+    return this.acsPoller.run();
+  }
 
   @Post('expire')
   @ApiOperation({ summary: 'Хугацаа дууссан гишүүдийг тэмдэглэх' })
