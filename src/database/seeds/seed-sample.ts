@@ -201,7 +201,10 @@ async function main(): Promise<void> {
       name: 'Гол хаалга',
       serial: 'DS-K1T320MFX-0001',
       model: 'DS-K1T320MFX',
-      ip: '192.168.1.64',
+      // ⚠ Хуурамч IP бичихгүй. `devices.ip` нь одоо ЖИНХЭНЭ хаягийн
+      // эх сурвалж (`DeviceAddressService`) — таамаг утга бичвэл
+      // gateway тэр рүү очиж унана.
+      ip: process.env.HIK_HOST || null,
       doorNo: 1,
       firmware: 'V3.2.30',
       online: true,

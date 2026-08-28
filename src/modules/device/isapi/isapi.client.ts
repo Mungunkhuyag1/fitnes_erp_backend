@@ -330,6 +330,27 @@ export class IsapiClient {
   //  Туслах
   // ══════════════════════════════════════════════════════════════
 
+  /**
+   * Түүхий ISAPI дуудлага — экспорт, оношилгоонд.
+   *
+   * ⚠ Хуудаслалт шаардсан дуудлагад л хэрэглэнэ (`UserInfo/Search`).
+   * Ердийн үйлдэлд ДЭЭРХ нэрлэсэн методуудыг ашиглана: тэдгээр нь
+   * хариуны бүтцийг шалгаж, алдааг ангилдаг.
+   */
+  async raw<T = Json>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    const { status, text } = await this.json(
+      method,
+      path,
+      body === undefined ? undefined : JSON.stringify(body),
+    );
+    if (status !== 200) throw new IsapiError(status, text);
+    return this.parse(text) as T;
+  }
+
   private json(method: string, path: string, body?: string) {
     return this.http.request(method, path, body, {
       'Content-Type': 'application/json',

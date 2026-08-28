@@ -4,6 +4,7 @@ import { CurrentUser, type AuthUser } from '../../common/decorators/current-user
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
 import { AuditService } from '../audit/audit.service';
+import { DeviceAddressService } from './device-address.service';
 import { DeviceDiagnosticsService } from './device-diagnostics.service';
 import { DeviceService } from './device.service';
 
@@ -15,6 +16,7 @@ export class DeviceController {
     private readonly devices: DeviceService,
     private readonly audit: AuditService,
     private readonly diag: DeviceDiagnosticsService,
+    private readonly address: DeviceAddressService,
   ) {}
 
   @Get()
@@ -39,6 +41,24 @@ export class DeviceController {
   @ApiOperation({ summary: 'Терминалтай холбогдож үзэх' })
   ping() {
     return this.devices.ping();
+  }
+
+  /**
+   * Терминалын IP-г дэд сүлжээнээс ХАЙЖ, DB-д хадгална.
+   *
+   * ЯАГААД ХЭРЭГТЭЙ ВЭ: фитнесийн router DHCP-ээр хаяг тарааж,
+   * терминалын IP хугацаа өнгөрөхөд солигддог. Ажилтан `.env` засаж
+   * чадахгүй тул дэлгэцээс дарж шинэчлэх боломжтой байх ёстой.
+   *
+   * ⚠ Сканнер НЭВТРЭХГҮЙ — зөвхөн `401 + Digest` хариуг хардаг тул
+   * буруу нууц үгийн тоолуурыг хөдөлгөхгүй.
+   */
+  @Roles(Role.MANAGER)
+  @Post('discover')
+  @ApiOperation({ summary: 'Терминалын хаягийг сүлжээнээс хайх' })
+  @ApiQuery({ name: 'subnet', required: false, description: 'жиш. 192.168.0' })
+  discover(@Query('subnet') subnet?: string) {
+    return this.address.discover(subnet);
   }
 
   /**

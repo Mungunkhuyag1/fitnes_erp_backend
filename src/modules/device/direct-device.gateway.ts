@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PermanentError } from '../outbox/outbox.errors';
+import { DeviceAddressService } from './device-address.service';
 import {
   DigestAuthError,
   IsapiClient,
@@ -30,16 +31,32 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
   private readonly log = new Logger(DirectDeviceGateway.name);
   private client: IsapiClient | null = null;
 
-  constructor(private readonly config: ConfigService) {}
+  /** Хаяг солигдоход дахин хайхыг хэт олон дахин эхлүүлэхгүй. */
+  private rediscovering: Promise<boolean> | null = null;
 
-  onModuleInit(): void {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly address: DeviceAddressService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
     if (this.config.get<string>('gateways.device') !== 'direct') return;
-    const host = this.config.get<string>('hikvision.host');
+    await this.connect();
+  }
+
+  /**
+   * Хаягийг DB → `.env` эрэмбээр авч клиент үүсгэнэ.
+   *
+   * ЯАГААД DB ТҮРҮҮЛЭХ ВЭ: фитнесийн router DHCP-ээр хаяг тарааж,
+   * терминалын IP хугацаа өнгөрөхөд СОЛИГДДОГ. Автоматаар олоод DB-д
+   * бичсэн хаяг нь `.env`-ийнхээс үргэлж шинэ байна.
+   */
+  private async connect(): Promise<boolean> {
+    const host = await this.address.host();
     if (!host) {
-      this.log.error(
-        'DEVICE_GATEWAY=direct боловч HIK_HOST тохируулаагүй байна',
-      );
-      return;
+      this.log.error('Терминалын хаяг тодорхойгүй — DB болон HIK_HOST хоосон');
+      this.client = null;
+      return false;
     }
     this.client = new IsapiClient({
       host,
@@ -50,6 +67,24 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
       timeoutMs: 15_000,
     });
     this.log.log(`Терминалтай шууд холбогдоно: ${this.client.address}`);
+    return true;
+  }
+
+  /**
+   * Хаяг солигдсон байж магадгүй — дэд сүлжээг сканнердаж дахин холбоно.
+   *
+   * ⚠ Зэрэг олон дуудлага унавал НЭГ л сканнер явуулна: 254 хаягийн
+   * шалгалт хүнд бөгөөд давхар явуулбал сүлжээ боогдоно.
+   */
+  private rediscover(): Promise<boolean> {
+    this.rediscovering ??= (async () => {
+      const r = await this.address.discover();
+      if (!r.chosen) return false;
+      return this.connect();
+    })().finally(() => {
+      this.rediscovering = null;
+    });
+    return this.rediscovering;
   }
 
   private api(): IsapiClient {
@@ -142,7 +177,7 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
    * ⚠ `DigestAuthError` (нууц үг буруу) нь БАЙНГЫН алдаа. Retry хийвэл
    * терминал IP-г 30 минут түгжинэ.
    */
-  private async guard<T>(fn: () => Promise<T>): Promise<T> {
+  private async guard<T>(fn: () => Promise<T>, retried = false): Promise<T> {
     try {
       return await fn();
     } catch (e) {
@@ -155,8 +190,27 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
         if (e.status >= 400 && e.status < 500) {
           throw new PermanentError(e.message);
         }
+        throw e; // 5xx — түр зуурын
       }
-      throw e; // сүлжээ/timeout/5xx → түр зуурын, retry хийнэ
+
+      // ★ ХАЯГ СОЛИГДСОН БАЙЖ МАГАДГҮЙ
+      //
+      // ISAPI биш, сүлжээний алдаа (fetch failed / timeout) гарсан бол
+      // DHCP терминалын IP-г сольсон байх магадлалтай. Нэг л удаа
+      // сканнердаж, шинэ хаягаар дахин оролдоно.
+      //
+      // Давтахад аюулгүй: бүх үйлдэл идемпотент («тавих», «нэмэх» биш)
+      // бөгөөд сүлжээний алдаа гэдэг нь хүсэлт төхөөрөмжид ХҮРЭЭГҮЙ
+      // гэсэн үг.
+      if (!retried) {
+        this.log.warn(
+          `Терминалд хүрсэнгүй (${(e as Error).message}) — хаягийг дахин хайж байна`,
+        );
+        if (await this.rediscover()) {
+          return this.guard(fn, true);
+        }
+      }
+      throw e; // сүлжээ/timeout → түр зуурын, outbox retry хийнэ
     }
   }
 
