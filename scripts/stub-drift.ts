@@ -7,14 +7,46 @@
  *   npm run stub:drift          # 3-3-3 зөрүү үүсгэнэ
  *   npm run stub:drift -- 5     # ангилал тус бүрд 5
  *   npm run stub:reset          # анхны байдалд буцаана
+ *
+ * Админы нууц үгийг асууна (терминал дээр харагдахгүй). Давтаж
+ * ажиллуулах бол `export STUB_PASSWORD=…` гэж тавьж болно.
  */
+import { createInterface } from 'readline';
+
 const BASE = process.env.STUB_API ?? 'http://localhost:3100/api';
 const EMAIL = process.env.STUB_EMAIL ?? 'admin@winfit.mn';
-const PASSWORD = process.env.STUB_PASSWORD;
+
+/**
+ * Нууц үгийг АСУУНА — терминал дээр харагдахгүй.
+ *
+ * ЯАГААД env-ээр шаарддаггүй вэ: `STUB_PASSWORD='...' npm run …` гэж
+ * бичвэл нууц үг shell-ийн түүхэнд (`~/.zsh_history`) үлдэнэ. Файлд
+ * хадгалах нь ч мөн адил — асуух нь хамгийн цэвэр.
+ */
+function askPassword(): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  // Бичсэн тэмдэгтийг цуурайлахгүй болгоно.
+  const out = rl as unknown as { _writeToOutput: (s: string) => void };
+  const orig = out._writeToOutput.bind(rl);
+  let hide = false;
+  out._writeToOutput = (str: string) => {
+    if (!hide) orig(str);
+  };
+
+  return new Promise((resolve) => {
+    rl.question(`${EMAIL} нууц үг: `, (answer) => {
+      rl.close();
+      process.stdout.write('\n');
+      resolve(answer);
+    });
+    hide = true;
+  });
+}
 
 async function main(): Promise<void> {
+  const PASSWORD = process.env.STUB_PASSWORD || (await askPassword());
   if (!PASSWORD) {
-    console.error('STUB_PASSWORD тохируулна уу (админы нууц үг)');
+    console.error('Нууц үг хоосон байна');
     process.exit(1);
   }
 
