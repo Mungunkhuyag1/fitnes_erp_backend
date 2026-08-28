@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -16,7 +25,7 @@ export class DeviceController {
     private readonly devices: DeviceService,
     private readonly audit: AuditService,
     private readonly diag: DeviceDiagnosticsService,
-    private readonly address: DeviceAddressService,
+    private readonly addr: DeviceAddressService,
   ) {}
 
   @Get()
@@ -43,6 +52,32 @@ export class DeviceController {
     return this.devices.ping();
   }
 
+  /** Одоогийн хаяг, эх сурвалж, дэд сүлжээ — дэлгэцэд. */
+  @Get('address')
+  @ApiOperation({ summary: 'Терминалын хаягийн төлөв' })
+  address() {
+    return this.addr.current();
+  }
+
+  /** Хаягийг гараар тавих — автомат хайлт бүтэлгүйтсэн үед. */
+  @Roles(Role.MANAGER)
+  @Patch('address')
+  @ApiOperation({ summary: 'Терминалын хаягийг гараар оруулах' })
+  async setAddress(
+    @Body() body: { ip?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.addr.setManual(String(body.ip ?? '').trim());
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'device.setAddress',
+      entity: 'device',
+      entityId: 'terminal',
+      after: { ip: body.ip },
+    });
+    return this.addr.current();
+  }
+
   /**
    * Терминалын IP-г дэд сүлжээнээс ХАЙЖ, DB-д хадгална.
    *
@@ -58,7 +93,7 @@ export class DeviceController {
   @ApiOperation({ summary: 'Терминалын хаягийг сүлжээнээс хайх' })
   @ApiQuery({ name: 'subnet', required: false, description: 'жиш. 192.168.0' })
   discover(@Query('subnet') subnet?: string) {
-    return this.address.discover(subnet);
+    return this.addr.discover(subnet);
   }
 
   /**

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { networkInterfaces } from 'os';
@@ -73,6 +73,48 @@ export class DeviceAddressService {
       }),
     );
     this.log.log(`Терминал бүртгэв: ${ip}`);
+  }
+
+  /** Одоогийн төлөв — дэлгэцэд харуулах. */
+  async current(): Promise<{
+    ip: string | null;
+    source: 'db' | 'env' | 'none';
+    envHost: string | null;
+    model: string | null;
+    firmware: string | null;
+    lastSeenAt: Date | null;
+    subnet: string | null;
+  }> {
+    const row = await this.devices.findOne({
+      where: { active: true },
+      order: { createdAt: 'ASC' },
+    });
+    const envHost = this.config.get<string>('hikvision.host') || null;
+    return {
+      ip: row?.ip || envHost,
+      source: row?.ip ? 'db' : envHost ? 'env' : 'none',
+      envHost,
+      model: row?.model ?? null,
+      firmware: row?.firmware ?? null,
+      lastSeenAt: row?.lastSeenAt ?? null,
+      subnet: this.localSubnet(),
+    };
+  }
+
+  /**
+   * Хаягийг ГАРААР тавих.
+   *
+   * Автомат хайлт бүтэлгүйтэх тохиолдол бий (өөр VLAN, сканнердахыг
+   * хориглосон сүлжээ). Ажилтан router-ээс хаягийг олж мэддэг тул
+   * шууд бичих зам ҮРГЭЛЖ байх ёстой.
+   */
+  async setManual(ip: string): Promise<void> {
+    // ⚠ Хэлбэрийг шалгана: буруу утга орвол gateway бүх дуудлага дээр
+    // унаж, шалтгаан нь тодорхойгүй болно.
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+      throw new BadRequestException('IP хаяг буруу байна (жиш. 192.168.0.106)');
+    }
+    await this.remember(ip);
   }
 
   /** Энэ машины дэд сүлжээ, жишээ нь `192.168.0`. */
