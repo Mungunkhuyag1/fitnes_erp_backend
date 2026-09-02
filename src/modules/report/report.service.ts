@@ -399,8 +399,12 @@ export class ReportService {
       SELECT
         (SELECT coalesce(sum(amount),0) FROM memberships
           WHERE reversed_at IS NULL AND created_at BETWEEN $1 AND $2) AS membership_revenue,
+        -- ⚠ Чөлөө нь memberships-д 0₮-ийн мөр болж бичигддэг
+        -- (recompute нь дэвтрээс тооцдог тул өөр арга байхгүй).
+        -- Орлогод нөлөөгүй ч ХУДАЛДАН АВАЛТ гэж тоологдох ЁСГҮЙ.
         (SELECT count(*) FROM memberships
-          WHERE reversed_at IS NULL AND created_at BETWEEN $1 AND $2) AS sales,
+          WHERE reversed_at IS NULL AND source <> 'freeze'
+            AND created_at BETWEEN $1 AND $2) AS sales,
         (SELECT coalesce(sum(amount),0) FROM locker_assignments
           WHERE type='rental' AND issued_at BETWEEN $1 AND $2) AS locker_revenue,
         (SELECT count(*) FROM locker_assignments
@@ -582,7 +586,9 @@ export class ReportService {
               coalesce(sum(m.amount), 0) AS revenue
        FROM memberships m
        LEFT JOIN packages p ON p.id = m.package_id
-       WHERE m.reversed_at IS NULL AND m.created_at BETWEEN $1 AND $2
+       -- Чөлөө нь багц биш — «Гараар» мөрөнд орж тоог гуйвуулах ёсгүй.
+       WHERE m.reversed_at IS NULL AND m.source <> 'freeze'
+         AND m.created_at BETWEEN $1 AND $2
        GROUP BY coalesce(p.name, 'Гараар')
        ORDER BY revenue DESC`,
       [from, to],

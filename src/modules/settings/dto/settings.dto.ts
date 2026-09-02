@@ -67,4 +67,22 @@ export class UpdateSettingsDto {
   @IsInt()
   @Min(0)
   locker_price_per_month?: number;
+  @ApiPropertyOptional({ example: 30, description: 'Жилд хамгийн ихдээ' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  freeze_days_per_year?: number;
+
+  @ApiPropertyOptional({ example: 14, description: 'Нэг удаад дээд тал' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  freeze_max_once?: number;
+
+  @ApiPropertyOptional({ example: 3, description: 'Хамгийн багадаа' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  freeze_min_days?: number;
+
 }

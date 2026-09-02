@@ -47,7 +47,7 @@ export class DigestService {
           WHERE reversed_at IS NULL
             AND (created_at AT TIME ZONE $2)::date = d.today) AS revenue,
         (SELECT count(*) FROM memberships, d
-          WHERE reversed_at IS NULL
+          WHERE reversed_at IS NULL AND source <> 'freeze'
             AND (created_at AT TIME ZONE $2)::date = d.today) AS sales,
         (SELECT coalesce(sum(amount),0) FROM memberships, d
           WHERE reversed_at IS NULL AND source = 'cash'
