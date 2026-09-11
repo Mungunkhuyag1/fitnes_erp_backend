@@ -85,4 +85,10 @@ export class UpdateSettingsDto {
   @Min(1)
   freeze_min_days?: number;
 
+  @ApiPropertyOptional({ description: 'Бэлгийн картын Loopy программ' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  loopy_gift_program_id?: string | null;
+
 }

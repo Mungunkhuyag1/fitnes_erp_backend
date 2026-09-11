@@ -126,6 +126,71 @@ export class LoyaltyClient {
     return id;
   }
 
+  /**
+   * Бэлгийн картын программ.
+   *
+   * ⚠ Гишүүнчлэлийн программаас ТУСДАА байх ёстой: талбар, дизайн,
+   * хугацаа бүгд өөр. Нэг программд хоёуланг нь багтаах гэвэл аль аль
+   * нь эвгүй харагдана.
+   */
+  private async giftProgramId(): Promise<string> {
+    const id = await this.settings.get('loopy_gift_program_id');
+    if (!id) {
+      throw new ServiceUnavailableException(
+        'Бэлгийн картын программ сонгоогүй — Тохиргоо → Холболт хэсгээс сонгоно уу',
+      );
+    }
+    return id;
+  }
+
+  /** Бэлгийн картын программ сонгогдсон эсэх. */
+  async giftReady(): Promise<boolean> {
+    return Boolean(await this.settings.get('loopy_gift_program_id'));
+  }
+
+  /** Бэлгийн картын enroll линк — хүлээн авагчид илгээнэ. */
+  async giftEnrollLink(): Promise<EnrollLink> {
+    return this.call<EnrollLink>(
+      'GET',
+      `/programs/${await this.giftProgramId()}/enroll-link`,
+    );
+  }
+
+  /** Бэлгийн картын программд дугаар зөвшөөрөх. */
+  async giftAllowPhone(phone: string, name?: string, note?: string): Promise<void> {
+    await this.call(
+      'POST',
+      `/programs/${await this.giftProgramId()}/allowed-phones`,
+      { phone, name, note },
+    );
+  }
+
+  async giftDisallowPhone(phone: string): Promise<void> {
+    await this.call(
+      'DELETE',
+      `/programs/${await this.giftProgramId()}/allowed-phones/` +
+        encodeURIComponent(phone),
+    );
+  }
+
+  /**
+   * Бэлгийн программд бүртгэгдсэн картууд.
+   *
+   * Хүлээн авагч enroll хийсний дараа WinFit нь УТАСНЫ ДУГААРААР
+   * тааруулж бэлгийн картад холбоно.
+   */
+  async giftProgramCards(
+    page = 1,
+    limit = 100,
+  ): Promise<{ items: LoyaltyCardListRow[]; total: number }> {
+    const res = await this.call<{ items: LoyaltyCardListRow[]; total: number }>(
+      'GET',
+      `/cards?programId=${encodeURIComponent(await this.giftProgramId())}` +
+        `&page=${page}&limit=${limit}`,
+    );
+    return { items: res.items ?? [], total: res.total ?? 0 };
+  }
+
   /** `LOOPY_PROGRAM_ID` env-ийн нөөц утга — тохиргоо хоосон үед ажиллана. */
   envProgramId(): string | null {
     return this.config.get<string>('loopy.programId') ?? null;
@@ -381,10 +446,19 @@ export class LoyaltyClient {
       } as T;
     }
     if (path === '/programs') {
+      // ⚠ ХОЁР программ: бэлгийн карт нь гишүүнчлэлийнхээс тусдаа
+      // программ дээр үүсдэг тул stub нь тэр сонголтыг өгөх ёстой.
       return [
         {
           id: this.config.get<string>('loopy.programId') ?? 'stub-program',
           name: 'WinFit (stub)',
+          type: 'pass',
+          target: null,
+          status: 'active',
+        },
+        {
+          id: 'stub-gift-program',
+          name: 'WinFit Gift (stub)',
           type: 'pass',
           target: null,
           status: 'active',
@@ -398,6 +472,23 @@ export class LoyaltyClient {
     // enroll хийж үүсгэдэг (WinFit үүсгэдэггүй) тул stub нь «карт
     // хараахан алга» гэж хэлэх нь бодит байдалд ойр.
     if (path.startsWith('/cards')) {
+      // Бэлгийн программын жагсаалт — зөвшөөрөгдсөн дугаар бүрийг
+      // «enroll хийсэн» гэж дуурайлгана. Ингэснээр `sync()` урсгалыг
+      // бүтнээр нь турших боломжтой.
+      if (path.includes('programId=stub-gift-program')) {
+        const items = [...this.stubPhones.values()].map((p, i) => ({
+          serialNumber: `stub-gift-${i + 1}`,
+          code: `gc${i + 1}`,
+          barcode: '',
+          status: 'active',
+          expiresAt: null,
+          programId: 'stub-gift-program',
+          programName: 'WinFit Gift (stub)',
+          customerName: p.name ?? null,
+          customerPhone: p.phone,
+        }));
+        return { items, total: items.length } as T;
+      }
       if (path.includes('?')) return { items: [], total: 0 } as T;
       if (method === 'GET') throw new PermanentError('[stub] карт алга');
       return { changed: true, pushed: false, appleDevices: 0 } as T;
