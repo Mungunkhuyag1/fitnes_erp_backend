@@ -13,6 +13,11 @@ import { AppDataSource } from '../data-source';
  * `.env` дэх утгууд:
  *   ADMIN_EMAIL     заавал биш (анхдагч admin@winfit.mn)
  *   ADMIN_PASSWORD  өгөөгүй бол санамсаргүй үүсгэж дэлгэц дээр хэвлэнэ
+ *
+ * ⚠ PRODUCTION-Д `npm run seed:admin:prod` ГЭЖ АЖИЛЛУУЛНА.
+ * `seed:admin` нь `ts-node`-оор явдаг бөгөөд тэр нь `devDependencies`-д
+ * байдаг тул Railway дээр устгагдсан байна («ts-node: not found»).
+ * `:prod` хувилбар нь компайлсан `dist/`-ийг энгийн `node`-оор ажиллуулна.
  *   ADMIN_NAME      заавал биш
  *
  * Бүртгэл АЛЬ ХЭДИЙН байвал нууц үгийг `.env`-ийнхээр СОЛИНО. Ингэснээр
