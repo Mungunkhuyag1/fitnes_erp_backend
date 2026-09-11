@@ -19,6 +19,8 @@ import { InvoiceService } from '../invoice/invoice.service';
 import { Member } from '../member/member.entity';
 import { AUDIENCE_LABEL } from '../../common/enums/audience.enum';
 import { Package } from '../package/package.entity';
+import { PromotionChannel } from '../promotion/promotion.entity';
+import { PromotionService } from '../promotion/promotion.service';
 import { SettingsService } from '../settings/settings.service';
 
 /**
@@ -40,6 +42,7 @@ export class PublicService {
   constructor(
     @InjectRepository(Member) private readonly members: Repository<Member>,
     @InjectRepository(Package) private readonly packages: Repository<Package>,
+    private readonly promotions: PromotionService,
     private readonly invoices: InvoiceService,
     private readonly settings: SettingsService,
     private readonly config: ConfigService,
@@ -61,20 +64,29 @@ export class PublicService {
       where: { active: true, online: true },
       order: { sortOrder: 'ASC', price: 'ASC' },
     });
-    return {
-      gymName: await this.settings.get('gym_name'),
-      packages: rows.map((p) => ({
-        id: p.id,
-        name: p.name,
-        days: p.days,
-        price: Number(p.price),
-        audience: p.audience,
-        audienceLabel: AUDIENCE_LABEL[p.audience] ?? p.audience,
-        // Дэлгэц эдгээрийг бүлэглэх, анхааруулах, тэмдэглэхэд ашиглана.
-        requiresProof: p.requiresProof,
-        firstTimeOnly: p.firstTimeOnly,
-      })),
-    };
+    // ⚠ Үнийг СЕРВЕР тооцоолно. Урамшууллыг зөвхөн дэлгэц дээр зурвал
+    // жинхэнэ үнэ нь өөр байж, хэрэглэгч гайхна.
+    const priced = await Promise.all(
+      rows.map(async (p) => {
+        const q = await this.promotions.quote(p, PromotionChannel.ONLINE);
+        return {
+          id: p.id,
+          name: p.name,
+          days: q.days,
+          price: q.price,
+          audience: p.audience,
+          audienceLabel: AUDIENCE_LABEL[p.audience] ?? p.audience,
+          // Дэлгэц эдгээрийг бүлэглэх, анхааруулах, тэмдэглэхэд ашиглана.
+          requiresProof: p.requiresProof,
+          firstTimeOnly: p.firstTimeOnly,
+          // Урамшуулалтай бол анхны утгыг зурж харуулна.
+          basePrice: q.promotion ? q.basePrice : null,
+          baseDays: q.promotion ? q.baseDays : null,
+          promotion: q.promotion ? { name: q.promotion.name } : null,
+        };
+      }),
+    );
+    return { gymName: await this.settings.get('gym_name'), packages: priced };
   }
 
   // ── 1-р түвшин ──

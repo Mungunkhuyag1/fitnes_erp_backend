@@ -91,4 +91,14 @@ export class Invoice {
   @Column({ name: 'approval_note', type: 'varchar', length: 300, nullable: true })
   approvalNote: string | null;
 
+
+  /**
+   * Ямар урамшуулал хэрэглэсэн бэ.
+   *
+   * Төлөгдөх агшинд бүртгэл хийхэд хэрэгтэй — тэр үед урамшуулал аль
+   * хэдийн дууссан байж болно.
+   */
+  @Column({ name: 'promotion_id', type: 'uuid', nullable: true })
+  promotionId: string | null;
+
 }

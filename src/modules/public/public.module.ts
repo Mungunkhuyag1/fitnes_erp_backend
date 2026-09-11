@@ -3,11 +3,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { InvoiceModule } from '../invoice/invoice.module';
 import { Member } from '../member/member.entity';
 import { Package } from '../package/package.entity';
+import { PromotionModule } from '../promotion/promotion.module';
 import { PublicController } from './public.controller';
 import { PublicService } from './public.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Member, Package]), InvoiceModule],
+  imports: [TypeOrmModule.forFeature([Member, Package]), InvoiceModule, PromotionModule],
   controllers: [PublicController],
   providers: [PublicService],
 })

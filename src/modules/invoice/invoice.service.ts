@@ -19,6 +19,11 @@ import { maskName } from '../../common/utils/phone.util';
 import { Member } from '../member/member.entity';
 import { MembershipService } from '../membership/membership.service';
 import { Package } from '../package/package.entity';
+import {
+  PromotionChannel,
+  PromotionKind,
+} from '../promotion/promotion.entity';
+import { PromotionService } from '../promotion/promotion.service';
 import { BonumService } from './bonum.service';
 import type { CreateInvoiceDto, ListInvoicesDto } from './dto/invoice.dto';
 import { Invoice } from './invoice.entity';
@@ -57,6 +62,7 @@ export class InvoiceService {
     @InjectRepository(Package) private readonly packages: Repository<Package>,
     private readonly bonum: BonumService,
     private readonly memberships: MembershipService,
+    private readonly promotions: PromotionService,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
   ) {}
@@ -102,6 +108,10 @@ export class InvoiceService {
       await this.repo.update(existing.id, { status: InvoiceStatus.EXPIRED });
     }
 
+    // ⚠ Үнийг СЕРВЕР тооцоолно. Клиентээс ирсэн дүнд итгэвэл хэн ч
+    // хөнгөлөлттэй үнээр төлбөр үүсгэж чадна.
+    const quote = await this.promotions.quote(pkg, PromotionChannel.ONLINE);
+
     const ttl = this.config.get<number>('bonum.invoiceTtlSec') ?? 300;
     const transactionId = `winfit-${randomBytes(9).toString('hex')}`;
 
@@ -115,8 +125,11 @@ export class InvoiceService {
         // Багцын тохиргоог ХУУЛБАРЛАНА — дараа өөрчлөгдвөл аль хэдийн
         // төлөгдсөн нэхэмжлэх хөндөгдөх ёсгүй (`days`/`amount`-тай ижил).
         needsApproval: pkg.requiresProof,
-        days: pkg.days,
-        amount: pkg.price,
+        // Урамшууллын дараах утгыг ХУУЛБАРЛАНА: урамшуулал дуусахад
+        // аль хэдийн үүссэн нэхэмжлэх хөндөгдөх ёсгүй.
+        days: quote.days,
+        amount: String(quote.price),
+        promotionId: quote.promotion?.id ?? null,
         status: InvoiceStatus.PENDING,
         provider: 'bonum',
         transactionId,
@@ -199,14 +212,16 @@ export class InvoiceService {
     invoice.approvalNote = note?.trim() || null;
     await this.repo.save(invoice);
 
-    await this.memberships.extend({
+    const membership = await this.memberships.extend({
       memberId: invoice.memberId,
       packageId: invoice.packageId,
+      days: invoice.days,
       amount: Number(invoice.amount),
       source: MembershipSource.BONUM,
       invoiceId: invoice.id,
       idempotencyKey: `invoice:${invoice.id}`,
     });
+    await this.recordPromotion(invoice, membership.id);
 
     await this.audit.record({
       staffUserId,
@@ -302,14 +317,18 @@ export class InvoiceService {
         `Баталгаажуулалт хүлээнэ: ${invoice.packageName} — гишүүн ${invoice.memberId}`,
       );
     } else {
-      await this.memberships.extend({
+      const membership = await this.memberships.extend({
         memberId: invoice.memberId,
         packageId: invoice.packageId,
+        // ⚠ Нэхэмжлэхийн ХУУЛБАРЛАСАН утгыг ашиглана — урамшуулал
+        // дууссан ч төлсөн хүн амласан хоногоо авах ёстой.
+        days: invoice.days,
         amount: Number(invoice.amount),
         source: MembershipSource.BONUM,
         invoiceId: invoice.id,
         idempotencyKey: `invoice:${invoice.id}`,
       });
+      await this.recordPromotion(invoice, membership.id);
     }
 
     if (opts.staffUserId) {
@@ -506,4 +525,42 @@ export class InvoiceService {
       createdAt: i.createdAt,
     };
   }
+  /**
+   * Урамшууллын ашиглалтыг бүртгэнэ.
+   *
+   * ⚠ Бүртгэл унасан ч төлбөр БҮТЭХ ёстой — статистик нь мөнгө хүлээн
+   * авахыг зогсоох ёсгүй.
+   */
+  private async recordPromotion(
+    invoice: Invoice,
+    membershipId: string,
+  ): Promise<void> {
+    if (!invoice.promotionId) return;
+    try {
+      const pkg = invoice.packageId
+        ? await this.packages.findOne({ where: { id: invoice.packageId } })
+        : null;
+      const base = pkg ? Number(pkg.price) : Number(invoice.amount);
+      const off = Math.max(0, base - Number(invoice.amount));
+      const promo = await this.promotions.byId(invoice.promotionId);
+      if (!promo) return;
+      await this.promotions.record({
+        promotionId: invoice.promotionId,
+        memberId: invoice.memberId,
+        membershipId,
+        invoiceId: invoice.id,
+        kind: promo.kind,
+        // Хоног нэмэх урамшуулалд нэмэгдсэн ХОНОГ, бусдад ХӨНГӨЛСӨН ДҮН.
+        valueApplied:
+          promo.kind === PromotionKind.BONUS_DAYS
+            ? Math.max(0, invoice.days - (pkg?.days ?? invoice.days))
+            : off,
+      });
+    } catch (e) {
+      this.log.warn(
+        `Урамшууллын бүртгэл хийгдсэнгүй: ${(e as Error).message}`,
+      );
+    }
+  }
+
 }
