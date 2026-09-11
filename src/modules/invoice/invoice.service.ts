@@ -211,7 +211,7 @@ export class InvoiceService {
   private callbackUrl(invoiceId: string): string {
     const base =
       this.config.get<string>('bonum.returnUrl') ||
-      `${this.config.get<string>('dashboardUrl')}/pay/return`;
+      `${this.config.get<string>('publicSiteUrl')}/pay/return`;
     const sep = base.includes('?') ? '&' : '?';
     return `${base}${sep}invoice=${encodeURIComponent(invoiceId)}`;
   }

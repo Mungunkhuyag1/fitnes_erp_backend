@@ -180,7 +180,7 @@ export class LoyaltySyncService implements OnModuleInit {
     m: Member,
   ): Promise<{ key: string; label: string; value: string }[]> {
     // Ташуу зураасыг `configuration.ts` аль хэдийн арилгасан.
-    const base = this.config.get<string>('dashboardUrl') ?? '';
+    const base = this.config.get<string>('publicSiteUrl') ?? '';
     const fields = [
       { key: 'winfitPay', label: 'Эрх сунгах', value: `${base}/pay/${m.payToken}` },
     ];

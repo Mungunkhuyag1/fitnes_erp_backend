@@ -17,6 +17,9 @@ export const envValidationSchema = Joi.object({
 
   API_BASE_URL: Joi.string().allow('').default('http://localhost:3100'),
   DASHBOARD_URL: Joi.string().allow('').default('http://localhost:3101'),
+  // Гишүүнд харагддаг НИЙТИЙН сайт (төлбөрийн хуудас тэнд байрлана).
+  // Хоосон бол DASHBOARD_URL-ийг залгамжилна — хуучин тохиргоо эвдрэхгүй.
+  PUBLIC_SITE_URL: Joi.string().allow('').default(''),
   CORS_ORIGINS: Joi.string().allow('').default(''),
 
   // ── Заавал ──

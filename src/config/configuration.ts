@@ -33,6 +33,20 @@ export const configuration = () => ({
   port: toInt(process.env.PORT, 3100),
   apiBaseUrl: trimSlash(process.env.API_BASE_URL ?? 'http://localhost:3100'),
   dashboardUrl: trimSlash(process.env.DASHBOARD_URL ?? 'http://localhost:3101'),
+  /**
+   * Гишүүн ӨӨРӨӨ зочилдог сайт (winfit.mn) — `/pay/:token` энд байна.
+   *
+   * ⚠ `dashboardUrl`-ээс ТУСАД нь: админ самбар `admin.winfit.mn` руу
+   * нүүсэн бөгөөд тэр хаяг нэвтрэлт шаарддаг. Wallet карт дээрх холбоос
+   * болон Bonum-ын буцах хаягийг тэнд заавал НИЙТИЙН сайт руу чиглүүлнэ.
+   * Хоосон бол `dashboardUrl` руу уначихна — нэг хостод ажиллаж байсан
+   * хуучин суулгацууд юу ч өөрчлөхгүйгээр үргэлжилнэ.
+   */
+  publicSiteUrl: trimSlash(
+    process.env.PUBLIC_SITE_URL ||
+      process.env.DASHBOARD_URL ||
+      'http://localhost:3102',
+  ),
   corsOrigins: toList(process.env.CORS_ORIGINS),
   /** Бүх огнооны тооцоолол (хугацаа дуусах, ирц, сануулга) энэ бүсээр. */
   timezone: process.env.TZ ?? 'Asia/Ulaanbaatar',
