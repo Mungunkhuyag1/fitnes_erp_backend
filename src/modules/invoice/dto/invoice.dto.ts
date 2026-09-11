@@ -19,6 +19,17 @@ export class CreateInvoiceDto {
   @ApiProperty()
   @IsUUID()
   packageId: string;
+
+  /**
+   * Хосын багцын хамтрагч.
+   *
+   * ⚠ `seats = 2` багцад ЗААВАЛ. Хоёулаа зэрэг бүртгүүлэх шийдвэрийн
+   * үр дүн — ресепшн дээр хоёулаа байгаа тул сонгох нь хормын ажил.
+   */
+  @ApiPropertyOptional({ description: 'Хосын багцын хоёр дахь гишүүн' })
+  @IsOptional()
+  @IsUUID()
+  partnerMemberId?: string;
 }
 
 export class ListInvoicesDto extends PageQueryDto {

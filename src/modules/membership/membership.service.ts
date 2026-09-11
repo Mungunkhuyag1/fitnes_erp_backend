@@ -257,6 +257,62 @@ export class MembershipService {
       }
     }
 
+    // ── Хосын багц: нэг төлбөр, хоёр гишүүнчлэл ──
+    const pkg = dto.packageId
+      ? await this.packages.findOne({ where: { id: dto.packageId } })
+      : null;
+    const seats = pkg?.seats ?? 1;
+
+    if (seats > 1) {
+      if (!dto.partnerMemberId) {
+        throw new BadRequestException(
+          `«${pkg!.name}» нь ${seats} хүний багц — хамтрагчийг сонгоно уу`,
+        );
+      }
+      if (dto.partnerMemberId === memberId) {
+        throw new BadRequestException('Хоёр гишүүн ӨӨР байх ёстой');
+      }
+      const partner = await this.members.findOne({
+        where: { id: dto.partnerMemberId },
+      });
+      if (!partner) throw new NotFoundException('Хамтрагч олдсонгүй');
+
+      // ⚠ Дүнг ХАГАСЛАНА. Бүтэн дүнг хоёуланд нь бичвэл орлого ХОЁР
+      // ДАХИН харагдана. Сондгой төгрөгийг эхний хүнд.
+      const share = Math.floor(dto.amount / 2);
+      const extra = dto.amount - share * 2;
+
+      const first = await this.extend({
+        memberId,
+        packageId: dto.packageId,
+        amount: share + extra,
+        source: dto.method,
+        staffUserId: user.id,
+        reason: `Хосын багц (1/2)`,
+        // ⚠ Түлхүүрт СУУДАЛ орно — эс бөгөөс хоёр дахь сунгалт
+        // эхнийхтэй ижил түлхүүртэй болж алгасагдана.
+        idempotencyKey: `${dto.idempotencyKey}:1`,
+        ip,
+      });
+      await this.extend({
+        memberId: dto.partnerMemberId,
+        packageId: dto.packageId,
+        amount: share,
+        source: dto.method,
+        staffUserId: user.id,
+        reason: `Хосын багц (2/2)`,
+        idempotencyKey: `${dto.idempotencyKey}:2`,
+        ip,
+      });
+      this.log.log(`Хосын багц (бэлнээр): ${pkg!.name} × 2 гишүүн`);
+      return first;
+    }
+    if (dto.partnerMemberId) {
+      throw new BadRequestException(
+        'Энэ багц нэг хүний эрх — хамтрагч сонгох боломжгүй',
+      );
+    }
+
     return this.extend({
       memberId,
       packageId: dto.packageId,

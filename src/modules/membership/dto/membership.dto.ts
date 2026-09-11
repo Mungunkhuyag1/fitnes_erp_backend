@@ -55,6 +55,17 @@ export class ExtendMembershipDto {
   @MinLength(8)
   @MaxLength(128)
   idempotencyKey: string;
+  /**
+   * Хосын багцын хамтрагч.
+   *
+   * ⚠ `seats = 2` багцад ЗААВАЛ. Хосын багц онлайнд зарагддаггүй тул
+   * (`online = false`) ресепшний урсгалд ч дэмжигдэх ёстой.
+   */
+  @ApiPropertyOptional({ description: 'Хосын багцын хоёр дахь гишүүн' })
+  @IsOptional()
+  @IsUUID()
+  partnerMemberId?: string;
+
 }
 
 export class ReverseMembershipDto {

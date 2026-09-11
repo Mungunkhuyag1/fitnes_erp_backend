@@ -7,6 +7,7 @@ import { BonumService } from './bonum.service';
 import { BonumTokenStoreFactory } from './bonum-token.store';
 import { BonumWebhookController } from './bonum-webhook.controller';
 import { IntegrationToken } from './integration-token.entity';
+import { InvoiceMember } from './invoice-member.entity';
 import { Invoice } from './invoice.entity';
 import { PromotionModule } from '../promotion/promotion.module';
 import { InvoiceController } from './invoice.controller';
@@ -16,7 +17,7 @@ import { InvoiceService } from './invoice.service';
 @Module({
   imports: [
     PromotionModule,
-    TypeOrmModule.forFeature([Invoice, IntegrationToken, Member, Package]),
+    TypeOrmModule.forFeature([Invoice, InvoiceMember, IntegrationToken, Member, Package]),
     MembershipModule,
   ],
   controllers: [InvoiceController, BonumWebhookController],

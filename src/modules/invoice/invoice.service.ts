@@ -18,6 +18,7 @@ import { AuditService } from '../audit/audit.service';
 import { maskName } from '../../common/utils/phone.util';
 import { Member } from '../member/member.entity';
 import { MembershipService } from '../membership/membership.service';
+import { InvoiceMember } from './invoice-member.entity';
 import { Package } from '../package/package.entity';
 import {
   PromotionChannel,
@@ -58,6 +59,8 @@ export class InvoiceService {
 
   constructor(
     @InjectRepository(Invoice) private readonly repo: Repository<Invoice>,
+    @InjectRepository(InvoiceMember)
+    private readonly invoiceMembers: Repository<InvoiceMember>,
     @InjectRepository(Member) private readonly members: Repository<Member>,
     @InjectRepository(Package) private readonly packages: Repository<Package>,
     private readonly bonum: BonumService,
@@ -108,6 +111,28 @@ export class InvoiceService {
       await this.repo.update(existing.id, { status: InvoiceStatus.EXPIRED });
     }
 
+    // ── Хосын багц: хоёр дахь гишүүнийг ЭНД шалгана ──
+    let partner: Member | null = null;
+    if (pkg.seats > 1) {
+      if (!dto.partnerMemberId) {
+        throw new BadRequestException(
+          `«${pkg.name}» нь ${pkg.seats} хүний багц — хамтрагчийг сонгоно уу`,
+        );
+      }
+      if (dto.partnerMemberId === dto.memberId) {
+        throw new BadRequestException('Хоёр гишүүн ӨӨР байх ёстой');
+      }
+      partner = await this.members.findOne({
+        where: { id: dto.partnerMemberId },
+      });
+      if (!partner) throw new NotFoundException('Хамтрагч олдсонгүй');
+      if (partner.status === MemberStatus.CANCELLED) {
+        throw new BadRequestException('Хамтрагч цуцлагдсан байна');
+      }
+    } else if (dto.partnerMemberId) {
+      throw new BadRequestException('Энэ багц нэг хүний эрх — хамтрагч сонгох боломжгүй');
+    }
+
     // ⚠ Үнийг СЕРВЕР тооцоолно. Клиентээс ирсэн дүнд итгэвэл хэн ч
     // хөнгөлөлттэй үнээр төлбөр үүсгэж чадна.
     const quote = await this.promotions.quote(pkg, PromotionChannel.ONLINE);
@@ -138,9 +163,28 @@ export class InvoiceService {
       }),
     );
 
+    // Хосын багц: хамтрагчийг холбоно. Гишүүнчлэл нь ТӨЛӨГДӨХ агшинд
+    // тус бүрд үүснэ — энд зөвхөн «хэн хэн» гэдгийг тэмдэглэнэ.
+    if (partner) {
+      await this.invoiceMembers.save([
+        this.invoiceMembers.create({
+          invoiceId: invoice.id,
+          memberId: member.id,
+          seatNo: 1,
+        }),
+        this.invoiceMembers.create({
+          invoiceId: invoice.id,
+          memberId: partner.id,
+          seatNo: 2,
+        }),
+      ]);
+    }
+
     try {
       const res = await this.bonum.createInvoice({
-        amount: Number(pkg.price),
+        // ⚠ БАНК РУУ урамшууллын ДАРААХ дүн явна. `pkg.price` илгээвэл
+        // нэхэмжлэх дээр хөнгөлсөн ч хэрэглэгчээс БҮТЭН үнэ хасагдана.
+        amount: quote.price,
         transactionId,
         callback: this.callbackUrl(invoice.id),
         description: `${pkg.name} — ${member.name}`,
@@ -212,15 +256,7 @@ export class InvoiceService {
     invoice.approvalNote = note?.trim() || null;
     await this.repo.save(invoice);
 
-    const membership = await this.memberships.extend({
-      memberId: invoice.memberId,
-      packageId: invoice.packageId,
-      days: invoice.days,
-      amount: Number(invoice.amount),
-      source: MembershipSource.BONUM,
-      invoiceId: invoice.id,
-      idempotencyKey: `invoice:${invoice.id}`,
-    });
+    const membership = await this.grant(invoice);
     await this.recordPromotion(invoice, membership.id);
 
     await this.audit.record({
@@ -317,17 +353,7 @@ export class InvoiceService {
         `Баталгаажуулалт хүлээнэ: ${invoice.packageName} — гишүүн ${invoice.memberId}`,
       );
     } else {
-      const membership = await this.memberships.extend({
-        memberId: invoice.memberId,
-        packageId: invoice.packageId,
-        // ⚠ Нэхэмжлэхийн ХУУЛБАРЛАСАН утгыг ашиглана — урамшуулал
-        // дууссан ч төлсөн хүн амласан хоногоо авах ёстой.
-        days: invoice.days,
-        amount: Number(invoice.amount),
-        source: MembershipSource.BONUM,
-        invoiceId: invoice.id,
-        idempotencyKey: `invoice:${invoice.id}`,
-      });
+      const membership = await this.grant(invoice);
       await this.recordPromotion(invoice, membership.id);
     }
 
@@ -561,6 +587,64 @@ export class InvoiceService {
         `Урамшууллын бүртгэл хийгдсэнгүй: ${(e as Error).message}`,
       );
     }
+  }
+
+  /**
+   * Нэхэмжлэхийн эрхийг олгоно — хосын багцад ХОЁР гишүүнд.
+   *
+   * ★ ЯАГААД ТУС БҮРД ӨӨРИЙН МӨР ВЭ
+   *
+   * «Нэг гишүүн = нэг гишүүнчлэл» гэсэн таамаг систем даяар үйлчилдэг:
+   * сунгалт, терминалын бичилт, Loopy карт, тайлан бүгд түүнд
+   * тулгуурладаг. Нэг мөрөнд хоёр хүн заавал тэр бүхнийг өөрчилнө.
+   *
+   * ⚠ Дүнг ХАГАСЛАНА. Бүтэн дүнг хоёуланд нь бичвэл орлого ХОЁР
+   * ДАХИН харагдана. Сондгой төгрөгийг эхний хүнд өгнө.
+   */
+  private async grant(invoice: Invoice): Promise<{ id: string }> {
+    const seats = await this.invoiceMembers.find({
+      where: { invoiceId: invoice.id },
+      order: { seatNo: 'ASC' },
+    });
+    const total = Number(invoice.amount);
+
+    if (!seats.length) {
+      return this.memberships.extend({
+        memberId: invoice.memberId,
+        packageId: invoice.packageId,
+        // ⚠ Нэхэмжлэхийн ХУУЛБАРЛАСАН утгыг ашиглана — урамшуулал
+        // дууссан ч төлсөн хүн амласан хоногоо авах ёстой.
+        days: invoice.days,
+        amount: total,
+        source: MembershipSource.BONUM,
+        invoiceId: invoice.id,
+        idempotencyKey: `invoice:${invoice.id}`,
+      });
+    }
+
+    const share = Math.floor(total / seats.length);
+    const extra = total - share * seats.length;
+    let first: { id: string } | null = null;
+
+    for (const seat of seats) {
+      const m = await this.memberships.extend({
+        memberId: seat.memberId,
+        packageId: invoice.packageId,
+        days: invoice.days,
+        amount: share + (seat.seatNo === 1 ? extra : 0),
+        source: MembershipSource.BONUM,
+        invoiceId: invoice.id,
+        reason: `Хосын багц (${seat.seatNo}/${seats.length})`,
+        // ⚠ Түлхүүрт СУУДЛЫН дугаар орно — эс бөгөөс хоёр дахь
+        // сунгалт нь эхнийхтэй ижил түлхүүртэй болж алгасагдана.
+        idempotencyKey: `invoice:${invoice.id}:${seat.seatNo}`,
+      });
+      if (seat.seatNo === 1) first = m;
+    }
+    this.log.log(
+      `Хосын багц олгов: ${seats.length} гишүүн × ${share}₮ (${invoice.packageName})`,
+    );
+    return first ?? { id: '' };
   }
 
 }
