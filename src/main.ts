@@ -24,6 +24,46 @@ import { AppModule } from './app.module';
  * Харин чимээгүй өнгөрөөхгүй — асах бүрд анхааруулга бичнэ. Ингэснээр
  * agent хэрэгжсэний дараа `stub`-аар үлдсэн нь логоос шууд харагдана.
  */
+/**
+ * Терминал руу бичих эрхийг ИЛ зааж өгсөн эсэхийг шалгана.
+ *
+ * ★ ЯАГААД АНХДАГЧ УТГА ТАВИАГҮЙ ВЭ
+ *
+ * Хоёр талдаа муу:
+ *   `on` бол — мартвал терминал руу чимээгүй бичиж эхэлнэ. Туршилтын
+ *              гишүүн заалны жинхэнэ хаалган дээр үүсэж болно.
+ *   `off` бол — мартвал гишүүд хаалганаас ОРЖ ЧАДАХГҮЙ болох ба
+ *              шалтгаан нь хаана ч харагдахгүй.
+ *
+ * Тиймээс `stub`-аас өөр горимд ил шийдвэр шаардана. Аль нь ч байсан
+ * ажиллуулагч хүн МЭДЭЖ сонгосон байна.
+ */
+function assertDeviceWrites(config: ConfigService): void {
+  const mode = config.get<string>('gateways.device');
+  if (mode === 'stub') return;
+
+  const writes = config.get<string>('gateways.deviceWrites');
+  if (writes !== 'on' && writes !== 'off') {
+    throw new Error(
+      `⛔ DEVICE_GATEWAY=${mode} үед DEVICE_WRITES-ыг ил зааж өгнө үү.\n` +
+        '   DEVICE_WRITES=off — зөвхөн унших ба хаалга нээх (эхлэхэд аюулгүй)\n' +
+        '   DEVICE_WRITES=on  — гишүүд терминал руу бичигдэнэ',
+    );
+  }
+
+  const log = new Logger('Bootstrap');
+  if (writes === 'off') {
+    log.warn(
+      '⚠ DEVICE_WRITES=off — терминал руу хэрэглэгч БИЧИХГҮЙ. ' +
+        'Унших ба хаалга нээх ажиллана. Хаагдсан ажил `failed` болж, ' +
+        'гишүүн дээр синкийн алдаа тэмдэглэгдэнэ — бичилтийг нээхэд ' +
+        'шөнийн тулгалт өөрөө нөхнө.',
+    );
+  } else {
+    log.log('DEVICE_WRITES=on — терминал руу бичилт ИДЭВХТЭЙ.');
+  }
+}
+
 function assertNoStubInProd(config: ConfigService): void {
   if (config.get<string>('env') !== 'production') return;
   const gateways = config.get<Record<string, string>>('gateways') ?? {};
@@ -59,6 +99,7 @@ async function bootstrap() {
   const config = app.get(ConfigService);
 
   assertNoStubInProd(config);
+  assertDeviceWrites(config);
 
   app.setGlobalPrefix('api');
 

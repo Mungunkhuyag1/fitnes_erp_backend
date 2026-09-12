@@ -86,7 +86,16 @@ export const configuration = () => ({
    * Дэлгэрэнгүй: docs/05-backend-api.md §6.
    */
   gateways: {
-    device: process.env.DEVICE_GATEWAY ?? 'stub', // stub | agent
+    device: process.env.DEVICE_GATEWAY ?? 'stub', // stub | direct | agent
+    /**
+     * Терминал руу БИЧИХ эрх — 'on' | 'off'.
+     *
+     * ⚠ `stub`-аас өөр горимд ЗААВАЛ ил зааж өгнө (`main.ts`-д шалгана).
+     * Анхдагч утга тавьбал хоёр талдаа муу: `on` бол мартвал чимээгүй
+     * бичнэ, `off` бол мартвал гишүүд хаалганаас орж чадахгүй болоод
+     * шалтгаан нь олдохгүй.
+     */
+    deviceWrites: process.env.DEVICE_WRITES ?? '',
     loopy: process.env.LOOPY_MODE ?? 'stub', // stub | live
     bonum: process.env.BONUM_MODE ?? 'stub', // stub | live
   },

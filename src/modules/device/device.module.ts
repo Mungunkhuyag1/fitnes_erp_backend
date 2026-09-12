@@ -14,6 +14,7 @@ import { DeviceConnectionService } from './device-connection.service';
 import { DeviceDiagnosticsService } from './device-diagnostics.service';
 import { DeviceService } from './device.service';
 import { DirectDeviceGateway } from './direct-device.gateway';
+import { ReadOnlyDeviceGateway } from './read-only.gateway';
 import { DeviceSyncService } from './device-sync.service';
 import { FaceWatchService } from './face-watch.service';
 import { StubDeviceGateway } from './stub-device.gateway';
@@ -51,16 +52,28 @@ import { StubDeviceGateway } from './stub-device.gateway';
         direct: DirectDeviceGateway,
         agent: AgentDeviceGateway,
       ) => {
-        switch (config.get<string>('gateways.device')) {
-          // Нэг LAN дотор — хөгжүүлэлт, газар дээрх туршилт.
-          case 'direct':
-            return direct;
-          // NAT-ын ард — on-prem agent WSS-ээр (B12b).
-          case 'agent':
-            return agent;
-          default:
-            return stub;
+        const mode = config.get<string>('gateways.device');
+        const chosen =
+          mode === 'direct'
+            ? // Нэг LAN дотор — хөгжүүлэлт, газар дээрх туршилт.
+              direct
+            : mode === 'agent'
+              ? // NAT-ын ард — on-prem agent WSS-ээр (B12b).
+                agent
+              : stub;
+
+        /*
+         * ⚠ БИЧИХ ХААЛТ. `DEVICE_WRITES=off` үед бүрхүүлээр ороож
+         * бичих гурван үйлдлийг зогсооно. Унших ба хаалга нээх
+         * ажилласаар байна.
+         *
+         * `stub` дээр хэрэглэхгүй: тэнд бичилт хаана ч хүрдэггүй тул
+         * хааснаар зөвхөн хөгжүүлэлт төвөгтэй болно.
+         */
+        if (mode !== 'stub' && config.get<string>('gateways.deviceWrites') === 'off') {
+          return new ReadOnlyDeviceGateway(chosen);
         }
+        return chosen;
       },
     },
     DeviceSyncService,

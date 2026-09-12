@@ -43,6 +43,8 @@ export const envValidationSchema = Joi.object({
   DEVICE_GATEWAY: Joi.string()
     .valid('stub', 'direct', 'agent')
     .default('stub'),
+  // Хоосон = заагаагүй. `stub`-аас өөр горимд `main.ts` шаардана.
+  DEVICE_WRITES: Joi.string().valid('on', 'off', '').default(''),
   LOOPY_MODE: Joi.string().valid('stub', 'live').default('stub'),
   BONUM_MODE: Joi.string().valid('stub', 'live').default('stub'),
 
