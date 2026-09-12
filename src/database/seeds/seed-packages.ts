@@ -14,7 +14,11 @@ import { AppDataSource } from '../data-source';
  * Устгахгүй: `memberships` мөрүүд хуучин багцыг заасаар байх ёстой.
  * Жагсаалтад байхгүй хуучин багцыг ИДЭВХГҮЙ болгоно.
  */
-const REAL: Array<Partial<Package> & { name: string }> = [
+/**
+ * ⚠ Экспортлов: прод дээр ажиллуулдаг скрипт үүнийг ИМПОРТЛОНО.
+ * Хоёр газар үнэ хадгалвал нэг нь хоцрох нь цаг хугацааны асуудал.
+ */
+export const REAL: Array<Partial<Package> & { name: string }> = [
   // ── Энгийн гишүүнчлэл ──
   {
     name: '1 сар (анх удаа)',
@@ -139,7 +143,14 @@ async function main(): Promise<void> {
   await ds.destroy();
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
-  process.exit(1);
-});
+/*
+ * ⚠ ЗӨВХӨН ШУУД ажиллуулсан үед. `REAL` жагсаалтыг өөр скрипт
+ * импортлодог тул хамгаалалтгүй бол ИМПОРТЛОХ ҮЕД өөрөө ажиллаж,
+ * санд бичнэ. (Прод скрипт бичих үед яг ингэж болсон.)
+ */
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e instanceof Error ? e.message : e);
+    process.exit(1);
+  });
+}
