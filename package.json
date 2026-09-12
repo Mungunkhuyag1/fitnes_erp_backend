@@ -1,6 +1,9 @@
 {
   "name": "winfit-backend",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=20"
+  },
   "description": "WinFit — фитнесийн гишүүнчлэл, нэвтрэлт, төлбөрийн backend",
   "private": true,
   "scripts": {
