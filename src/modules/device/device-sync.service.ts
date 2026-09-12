@@ -15,14 +15,6 @@ import {
 export const DEVICE_TOPICS = {
   USER_UPSERT: 'hik.userUpsert',
   SET_VALIDITY: 'hik.setValidity',
-  USER_DELETE: 'hik.userDelete',
-  /**
-   * Терминал дээрх ХЭРЭГЛЭГЧИЙГ дугаараар нь устгах — WinFit-д
-   * тохирох гишүүнгүй үед (шөнийн тулгалтын `extras`).
-   *
-   * `USER_DELETE`-ээс ялгаатай нь гишүүнийг DB-ээс хайхгүй.
-   */
-  USER_DELETE_NO: 'hik.userDeleteNo',
 } as const;
 
 /** Гишүүн бүрийн командыг дараалалд барих түлхүүр. */
@@ -77,18 +69,14 @@ export class DeviceSyncService implements OnModuleInit {
       }),
     );
 
-    this.registry.register(DEVICE_TOPICS.USER_DELETE, (p) =>
-      this.handle(p, (m) => this.device.deleteUser(m.memberNo)),
-    );
-
-    this.registry.register(DEVICE_TOPICS.USER_DELETE_NO, async (p) => {
-      const no = Number(p.employeeNo);
-      if (!Number.isInteger(no) || no <= 0) {
-        throw new PermanentError('payload-д employeeNo алга');
-      }
-      await this.device.deleteUser(no);
-      this.log.log(`Терминалаас устгав: №${no} (WinFit-д гишүүнгүй)`);
-    });
+    /*
+     * ⚠ УСТГАХ TOPIC БАЙХГҮЙ — ЗОРИУД.
+     *
+     * Урьд нь `hik.userDelete` ба `hik.userDeleteNo` хоёр байв.
+     * Терминал бол заалны цорын ганц хуулбар — нөөцгүй, царай нь
+     * хамт устдаг. Цуцлагдсан гишүүнийг одоо `setValidity`-аар
+     * УНТРААНА: бичлэг үлдэж, нэвтрэх эрх нь хаагдана.
+     */
   }
 
   /**
@@ -160,6 +148,17 @@ export function deviceValidity(m: Member): {
     // Түр зогсоосон гишүүнд эрхийг унтраана (огноог нь хөндөхгүй).
     // Хугацаа дууссан гишүүнийг УНТРААХГҮЙ — дуусах огноо нь өөрөө
     // хаана. Терминал ч мөн адил `enable`-ыг үлдээдэг.
-    enable: m.status !== MemberStatus.SUSPENDED,
+    //
+    // ⚠ ЦУЦЛАГДСАН гишүүнийг мөн унтраана. Урьд нь түүнийг терминалаас
+    // УСТГАДАГ байв; одоо бичлэг нь үлдэж, зөвхөн эрх нь хаагдана
+    // (`cancel()` нь `accessEndsAt`-ыг өнөөдрөөр татдаг).
+    //
+    // ЯАГААД УСТГАХГҮЙ: терминал бол заалны цорын ганц хуулбар.
+    // Устгавал царай нь хамт арилах ба буцаахын тулд хүн биеэр ирж
+    // дахин уншуулах ёстой болно. Унтраасан бичлэг ямар ч хор
+    // хүргэхгүй — нэвтрэх эрхгүй, харин сэргээхэд нэг товч.
+    enable:
+      m.status !== MemberStatus.SUSPENDED &&
+      m.status !== MemberStatus.CANCELLED,
   };
 }

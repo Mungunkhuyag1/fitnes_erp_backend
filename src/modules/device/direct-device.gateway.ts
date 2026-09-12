@@ -165,10 +165,6 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
     });
   }
 
-  async deleteUser(employeeNo: number): Promise<void> {
-    await this.guard(() => this.api().deleteUser(employeeNo));
-  }
-
   async faceStatus(employeeNos: number[]): Promise<Record<number, boolean>> {
     return this.guard(() => this.api().faceStatus(employeeNos));
   }

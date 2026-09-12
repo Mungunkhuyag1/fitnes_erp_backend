@@ -454,12 +454,34 @@ export class MembershipService {
       const member = await this.lock(memberId, m);
       const before = { status: member.status, accessEndsAt: member.accessEndsAt };
       member.status = MemberStatus.CANCELLED;
+
+      /*
+       * Эрхийг ӨНӨӨДРӨӨР хаана.
+       *
+       * ⚠ `Math.min` — хугацаа нь аль хэдийн дууссан гишүүнд өнөөдрийг
+       * бичвэл эрхийг нь СУНГАСАН болно.
+       *
+       * ⚠ Огноог САНД тогтоох нь чухал: `deviceValidity` нь үүнийг
+       * уншдаг. Хэрэв «цуцлагдсан бол одоо» гэж бодуулбал утга нь
+       * дуудалт тутам өөрчлөгдөж, шөнийн тулгалт мөнхийн зөрүү олж
+       * бүх гишүүнийг дахин бичих байв.
+       */
+      const now = new Date();
+      member.accessEndsAt = member.accessEndsAt
+        ? new Date(Math.min(member.accessEndsAt.getTime(), now.getTime()))
+        : now;
       await m.getRepository(Member).save(member);
 
-      // Цуцлах үед ЗӨВХӨН энд төхөөрөмжөөс устгана — царай нь хамт устана.
+      /*
+       * Терминал дээрх бичлэгийг УСТГАХГҮЙ — зөвхөн унтраана.
+       *
+       * ЯАГААД: терминал бол заалны цорын ганц хуулбар. Устгавал царай
+       * нь хамт арилах ба буцаахын тулд хүн биеэр ирж дахин уншуулах
+       * ёстой болно. Цуцлалт буцаж болдог үйлдэл; устгалт бол үгүй.
+       */
       await this.outbox.enqueue(
         {
-          topic: DEVICE_TOPICS.USER_DELETE,
+          topic: DEVICE_TOPICS.SET_VALIDITY,
           payload: { memberId },
           groupKey: memberGroup(memberId),
         },

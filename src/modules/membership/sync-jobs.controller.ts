@@ -244,25 +244,6 @@ export class SyncJobsController {
     return r;
   }
 
-  /** Терминалаас НЭГ хэрэглэгчийг устгах (зөвхөн WinFit-д бүртгэлгүйг). */
-  @Roles(Role.ADMIN)
-  @Post('device-audit/remove')
-  @ApiOperation({ summary: 'Терминалаас устгах (нэг хэрэглэгч)' })
-  async auditRemove(
-    @Body() body: { employeeNo?: number },
-    @CurrentUser() user: AuthUser,
-  ) {
-    const no = this.employeeNo(body.employeeNo);
-    const r = await this.deviceAuditSvc.removeFromDevice(no);
-    await this.audit.record({
-      staffUserId: user.id,
-      action: 'device.auditRemove',
-      entity: 'device',
-      entityId: String(no),
-      after: { employeeNo: no },
-    });
-    return r;
-  }
 
   private employeeNo(v: unknown): number {
     const n = Number(v);

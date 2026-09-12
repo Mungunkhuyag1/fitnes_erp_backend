@@ -21,14 +21,10 @@ export class AgentDeviceGateway implements DeviceGateway {
         'Хөгжүүлэлтэд DEVICE_GATEWAY=stub ашиглана уу.',
     );
   }
-
   upsertUser(_input: UpsertUserInput): Promise<void> {
     this.notReady();
   }
   setValidity(_input: SetValidityInput): Promise<void> {
-    this.notReady();
-  }
-  deleteUser(_employeeNo: number): Promise<void> {
     this.notReady();
   }
   faceStatus(_employeeNos: number[]): Promise<Record<number, boolean>> {

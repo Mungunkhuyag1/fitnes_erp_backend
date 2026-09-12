@@ -50,8 +50,6 @@ async function main(): Promise<void> {
 
   console.log(`\n  Терминал: ${api.address}  (хэрэглэгч: ${user})\n`);
 
-  const writeMode = process.argv.includes('--write');
-  const testEmployeeNo = 999999; // туршилтын дугаар — жинхэнэ гишүүнтэй мөргөлдөхгүй
 
   const steps: Step[] = [
     {
@@ -120,25 +118,16 @@ async function main(): Promise<void> {
     },
   ];
 
-  if (writeMode) {
-    steps.push(
-      {
-        name: `8. [WRITE] Туршилтын хэрэглэгч үүсгэх (№${testEmployeeNo})`,
-        run: () =>
-          api.upsertUser({
-            employeeNo: testEmployeeNo,
-            name: 'WinFit Probe',
-            beginTime: '2026-01-01T00:00:00',
-            endTime: '2026-01-01T00:00:01',
-            enable: true,
-          }),
-      },
-      {
-        name: `9. [WRITE] Туршилтын хэрэглэгчийг УСТГАХ`,
-        run: () => api.deleteUser(testEmployeeNo),
-      },
-    );
-  }
+  /*
+   * ⚠ БИЧИХ ГОРИМ ХАСАГДСАН — ЗОРИУД.
+   *
+   * Урьд нь `--write` нь туршилтын хэрэглэгч (№999999) үүсгээд дараа
+   * нь устгадаг байв. WinFit одоо терминалаас юу ч устгадаггүй тул
+   * үүсгэсэн хэрэглэгч ҮЛДЭХ байсан — оношлох хэрэгсэл терминал дээр
+   * хог үлдээж болохгүй.
+   *
+   * Проб бүхэлдээ УНШИХ болов.
+   */
 
   for (const step of steps) {
     process.stdout.write(`  ${step.name}\n`);

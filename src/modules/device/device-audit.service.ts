@@ -333,31 +333,20 @@ export class DeviceAuditService {
     return { action: 'created', memberId: created.id, name };
   }
 
-  /**
-   * Терминалаас НЭГ хэрэглэгчийг устгана.
+  /*
+   * ⚠ ТЕРМИНАЛААС УСТГАХ ҮЙЛДЭЛ ЭНД БАЙХГҮЙ — ЗОРИУД.
    *
-   * ⚠ Зөвхөн WinFit-д бүртгэлгүй (`extras`) хэрэглэгч дээр. Бүртгэлтэй
-   * гишүүнийг энэ замаар устгавал WinFit нь түүнийг «терминал дээр
-   * байгаа» гэж бодсоор байх бөгөөд шөнийн тулгалт дахин үүсгэнэ.
+   * Урьд нь `removeFromDevice()` байсан: WinFit-д бүртгэлгүй
+   * хэрэглэгчийг терминалаас арилгадаг байв.
+   *
+   * ЯАГААД ХАСАВ: терминал бол заалны цорын ганц хуулбар — нөөцгүй.
+   * WinFit-д хүн байхгүй байх нь тэр хүн БАЙХГҮЙ гэсэн үг БИШ,
+   * ихэвчлэн зүгээр л импортлогдоогүй гэсэн үг. Нэг удаа ийм
+   * цэвэрлэгээнд жинхэнэ хоёр гишүүн устсан.
+   *
+   * Тулгалт одоо ЗӨВХӨН нэг чиглэлтэй: терминал → WinFit
+   * (`pull`, `pullAll`). Илүүдэл олдвол мэдээлнэ, арилгахгүй.
    */
-  async removeFromDevice(employeeNo: number): Promise<{ queued: number }> {
-    const known = await this.members.findOne({
-      where: { memberNo: employeeNo },
-      select: { id: true, name: true },
-    });
-    if (known) {
-      throw new BadRequestException(
-        `№${employeeNo} нь WinFit-д бүртгэлтэй («${known.name}») — ` +
-          `гишүүнийг цуцлах замаар устгана`,
-      );
-    }
-    await this.outbox.enqueue({
-      topic: DEVICE_TOPICS.USER_DELETE_NO,
-      payload: { employeeNo },
-      groupKey: `device-user:${employeeNo}`,
-    });
-    return { queued: 1 };
-  }
 
   /**
    * ЗӨВХӨН харьцуулна — юу ч бичихгүй.
@@ -384,8 +373,15 @@ export class DeviceAuditService {
     this.running = true;
     try {
       const deviceUsers = await this.device.listUsers();
+      /*
+       * ⚠ Цуцлагдсан гишүүнийг ч ОРУУЛНА.
+       *
+       * Урьд нь тэднийг хассан байв — учир нь цуцлахад терминалаас
+       * УСТГАДАГ байсан. Одоо устгахгүй, зөвхөн унтраадаг тул тэд
+       * терминал дээр байх ЁСТОЙ. Хасвал тулгалт тэднийг «илүүдэл»
+       * гэж мөнхөд заасаар байх болно.
+       */
       const rows = await this.members.find({
-        where: { status: Not(MemberStatus.CANCELLED) },
         // `deviceValidity` нь `createdAt`-ыг ашигладаг тул заавал сонгоно.
         select: {
           id: true,

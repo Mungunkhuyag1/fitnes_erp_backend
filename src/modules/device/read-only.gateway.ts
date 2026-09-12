@@ -63,9 +63,6 @@ export class ReadOnlyDeviceGateway implements DeviceGateway {
   setValidity(input: SetValidityInput): Promise<void> {
     this.blocked(`хугацаа өөрчлөх №${input.employeeNo}`);
   }
-  deleteUser(employeeNo: number): Promise<void> {
-    this.blocked(`хэрэглэгч устгах №${employeeNo}`);
-  }
 
   // ── Зөвшөөрсөн ──
   faceStatus(employeeNos: number[]): Promise<Record<number, boolean>> {

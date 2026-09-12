@@ -233,11 +233,6 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
     Object.assign(u, input);
   }
 
-  async deleteUser(employeeNo: number): Promise<void> {
-    await this.simulate('deleteUser', employeeNo);
-    this.users.delete(employeeNo);
-  }
-
   async listUsers(): Promise<DeviceUserRow[]> {
     await this.simulate('listUsers');
     return [...this.users.values()].map((u) => ({

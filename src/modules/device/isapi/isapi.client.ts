@@ -259,20 +259,17 @@ export class IsapiClient {
     this.assertOk(text);
   }
 
-  async deleteUser(employeeNo: number): Promise<void> {
-    const { status, text } = await this.json(
-      'PUT',
-      '/ISAPI/AccessControl/UserInfo/Delete?format=json',
-      JSON.stringify({
-        UserInfoDelCond: {
-          EmployeeNoList: [{ employeeNo: String(employeeNo) }],
-        },
-      }),
-    );
-    // Байхгүйг устгах нь алдаа биш — идемпотент.
-    if (status === 200) return;
-    throw new IsapiError(status, text);
-  }
+  /*
+   * ⚠ `deleteUser` ЭНД БАЙХГҮЙ — ЗОРИУД.
+   *
+   * `PUT /ISAPI/AccessControl/UserInfo/Delete` нь `EmployeeNoList`
+   * БАЙХГҮЙ үед терминалын БҮХ хэрэглэгчийг арилгадаг. Нэг алдаатай
+   * дуудлага заалны 338 гишүүнийг царайтай нь хамт устгана — терминал
+   * нөөцгүй.
+   *
+   * WinFit терминалаас хэзээ ч устгахгүй. Эрх хаах бол `setValidity`.
+   */
+
 
   // ══════════════════════════════════════════════════════════════
   //  Царай
