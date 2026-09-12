@@ -5,6 +5,7 @@ import { Member } from '../member/member.entity';
 import { AccessController } from './access.controller';
 import { AccessEvent } from './access-event.entity';
 import { AccessService } from './access.service';
+import { WebhookInspector } from './webhook-inspector.service';
 import { AcsEventPoller } from './acs-event-poller.service';
 import { DeviceWebhookController } from './device-webhook.controller';
 
@@ -15,7 +16,7 @@ import { DeviceWebhookController } from './device-webhook.controller';
     DeviceModule,
   ],
   controllers: [AccessController, DeviceWebhookController],
-  providers: [AccessService, AcsEventPoller],
-  exports: [AccessService, AcsEventPoller],
+  providers: [WebhookInspector, AccessService, AcsEventPoller],
+  exports: [WebhookInspector, AccessService, AcsEventPoller],
 })
 export class AccessModule {}

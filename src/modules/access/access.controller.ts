@@ -20,6 +20,7 @@ import { Role } from '../../common/enums/role.enum';
 import { Member } from '../member/member.entity';
 import { AccessService } from './access.service';
 import { ListAccessEventsDto, SimulateAccessDto } from './dto/access.dto';
+import { WebhookInspector, type WebhookTrace } from './webhook-inspector.service';
 
 @ApiTags('access')
 @ApiBearerAuth('access-token')
@@ -28,6 +29,7 @@ export class AccessController {
   constructor(
     private readonly access: AccessService,
     private readonly config: ConfigService,
+    private readonly inspector: WebhookInspector,
     @InjectRepository(Member) private readonly members: Repository<Member>,
   ) {}
 
@@ -35,6 +37,22 @@ export class AccessController {
   @ApiOperation({ summary: 'Ирцийн бүртгэл (хуудаслалттай)' })
   list(@Query() q: ListAccessEventsDto) {
     return this.access.list(q);
+  }
+
+  /**
+   * Терминалаас ирсэн сүүлийн түлхэлтүүд — ТҮҮХИЙГЭЭР.
+   *
+   * Заалан дээр `httpHosts` тохируулахад юу ирснийг нүдээр харах цорын
+   * ганц арга. Терминал 200 авмагц «болсон» гэж үзэх тул алдаа нь
+   * зөвхөн ЭНД харагдана.
+   *
+   * ⚠ Санах ойд — сервер дахин ассан үед арилна.
+   */
+  @Get('webhook-traces')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Терминалаас ирсэн сүүлийн 10 түлхэлт (түүхий)' })
+  traces(): WebhookTrace[] {
+    return this.inspector.list();
   }
 
   @Get('stats')

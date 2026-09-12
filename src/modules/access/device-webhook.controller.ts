@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Headers,
   HttpCode,
   HttpStatus,
+  Ip,
   Logger,
   Param,
   Post,
@@ -13,7 +15,9 @@ import { ApiExcludeController } from '@nestjs/swagger';
 import { timingSafeEqual } from 'crypto';
 import { Public } from '../../common/decorators/public.decorator';
 import { AccessService } from './access.service';
-import { mapAcsEvent, type RawAcsEvent } from './acs-event.mapper';
+import { mapAcsEvent } from './acs-event.mapper';
+import { parseWebhookPayload } from './webhook-payload';
+import { WebhookInspector } from './webhook-inspector.service';
 
 /**
  * Терминалаас ирэх ирцийн мэдэгдэл.
@@ -42,6 +46,7 @@ export class DeviceWebhookController {
   constructor(
     private readonly access: AccessService,
     private readonly config: ConfigService,
+    private readonly inspector: WebhookInspector,
   ) {}
 
   /**
@@ -56,10 +61,12 @@ export class DeviceWebhookController {
   async receive(
     @Param('secret') secret: string,
     @Body() body: unknown,
-  ): Promise<{ ok: boolean; ingested: number }> {
+    @Headers('content-type') contentType = '',
+    @Ip() ip?: string,
+  ): Promise<{ ok: boolean; ingested: number; format: string }> {
     this.assertSecret(secret);
 
-    const events = this.extract(body);
+    const { format, events } = parseWebhookPayload(contentType, body);
     let ingested = 0;
 
     for (const e of events) {
@@ -84,7 +91,34 @@ export class DeviceWebhookController {
     }
 
     if (ingested) this.log.log(`Терминалаас ${ingested} ирц хүлээн авав`);
-    return { ok: true, ingested };
+    /*
+     * ⚠ ЧИМЭЭГҮЙ БҮТЭЛГҮЙТЭЛ — энэ төслийн хамгийн хортой алдаа.
+     *
+     * Терминал 200 авмагц «болсон» гэж үзнэ. Бид биеийг задалж
+     * чадаагүй ч 200 буцаадаг байсан тул ирц ирэхгүй мөртлөө хаана ч
+     * алдаа харагдахгүй. Одоо юу ирснийг санаж, сануулга бичнэ.
+     */
+    this.inspector.record({
+      ip: ip ?? null,
+      contentType,
+      bytes: Buffer.isBuffer(body) ? body.length : JSON.stringify(body ?? '').length,
+      format,
+      parsed: events.length,
+      ingested,
+      raw: Buffer.isBuffer(body)
+        ? body.toString('utf8')
+        : JSON.stringify(body ?? null),
+    });
+
+    if (ingested === 0) {
+      this.log.warn(
+        `Түлхэлт ирсэн ч ирц бүртгэгдсэнгүй — формат=${format}, ` +
+          `задалсан=${events.length}, content-type=${contentType || '—'}. ` +
+          'Дашборд → Терминал → Оношлогооноос түүхий биеийг хараарай.',
+      );
+    }
+
+    return { ok: true, ingested, format };
   }
 
   private assertSecret(given: string): void {
@@ -105,17 +139,6 @@ export class DeviceWebhookController {
    *   · `{ ... }`                            — шууд эвент
    *   · `[ {...}, {...} ]`                   — багц
    */
-  private extract(body: unknown): RawAcsEvent[] {
-    if (Array.isArray(body)) return body as RawAcsEvent[];
-    if (!body || typeof body !== 'object') return [];
-    const o = body as Record<string, unknown>;
-    const inner =
-      (o.AccessControllerEvent as Record<string, unknown> | undefined) ??
-      (o.AcsEvent as Record<string, unknown> | undefined) ??
-      o;
-    return [inner as RawAcsEvent];
-  }
-
   private knownMinor(minor: number): boolean {
     const known = [75, 104, 8, 76].includes(minor);
     if (!known && !this.seenUnknown.has(minor)) {

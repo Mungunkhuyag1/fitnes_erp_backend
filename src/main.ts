@@ -1,5 +1,6 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { raw } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -63,6 +64,22 @@ async function bootstrap() {
 
   // Railway/proxy-гийн ард бодит client IP (throttle IP-ээр ажилладаг).
   app.set('trust proxy', 1);
+
+  /*
+   * Терминалын түлхэлтийг ТҮҮХИЙГЭЭР барина.
+   *
+   * ⚠ Hikvision нь firmware-ээсээ хамаарч JSON, XML, эсвэл multipart
+   * илгээнэ. Nest-ийн анхдагч задлагч зөвхөн JSON ойлгодог тул бусад
+   * тохиолдолд бие нь ХООСОН болж, ирц чимээгүй алга болно.
+   *
+   * ⚠ Энэ нь JSON-г ДАВХАР задлахгүй: body-parser нь `req._body`
+   * тавьсан бол дараагийн задлагч алгасдаг. Тиймээс JSON ирвэл object,
+   * бусад бүх тохиолдолд Buffer ирнэ.
+   */
+  app.use(
+    '/api/webhooks/device',
+    raw({ type: () => true, limit: '2mb' }),
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({
