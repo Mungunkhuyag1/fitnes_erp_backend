@@ -14,7 +14,11 @@ import { MemberStatus } from '../../common/enums/member-status.enum';
 import { Member } from '../member/member.entity';
 import { OutboxService } from '../outbox/outbox.service';
 import { DEVICE_TOPICS, deviceValidity, memberGroup } from './device-sync.service';
-import { DEVICE_GATEWAY, type DeviceGateway } from './device.gateway';
+import {
+  DEVICE_GATEWAY,
+  type DeviceGateway,
+  type DeviceUserRow,
+} from './device.gateway';
 
 /** Нэг талбарын зөрүү — хоёр талын утгыг ЗЭРЭГ харуулна. */
 export interface FieldDiff {
@@ -218,6 +222,65 @@ export class DeviceAuditService {
     if (!u) {
       throw new NotFoundException(`№${employeeNo} терминал дээр байхгүй байна`);
     }
+    return this.applyDeviceUser(u);
+  }
+
+  /**
+   * Терминал дээр байгаа ч WinFit-д БАЙХГҮЙ бүх хүнийг авчрах.
+   *
+   * ★ ЯАГААД ТУСДАА ВЭ
+   *
+   * `pull()` нь дуудлага БҮРТ `listUsers()`-ыг дахин татдаг. 338 хүнийг
+   * нэг нэгээр авбал терминалаас 338 удаа бүтэн жагсаалт татна — заал
+   * дээрх терминал удаан, туннелээр дамжиж байгаа тул хэдэн арван
+   * минут болно. Энэ нь НЭГ л удаа татаад бүгдийг боловсруулна.
+   *
+   * ⚠ Байгаа гишүүнийг ХӨНДӨХГҮЙ. Терминал дээрх дуусах огноо нь
+   * төлбөрийн бүртгэлээс гардаггүй тул байгаа гишүүнийг дарж бичвэл
+   * WinFit-ийн мөнгөний түүх ба эрхийн огноо зөрөх болно. Шинээр
+   * үүсгэх нь л аюулгүй.
+   */
+  async pullAll(): Promise<{
+    deviceTotal: number;
+    created: number;
+    skipped: number;
+    names: string[];
+  }> {
+    const users = await this.device.listUsers();
+    const existing = new Set(
+      (await this.members.find({ select: { memberNo: true } })).map(
+        (m) => m.memberNo,
+      ),
+    );
+
+    const names: string[] = [];
+    let created = 0;
+    let skipped = 0;
+
+    for (const u of users) {
+      if (existing.has(u.employeeNo)) {
+        skipped++;
+        continue;
+      }
+      const r = await this.applyDeviceUser(u);
+      created++;
+      if (names.length < 20) names.push(`№${u.employeeNo} ${r.name}`);
+    }
+
+    this.log.warn(
+      `Терминалаас бөөнөөр авав: ${created} шинэ, ${skipped} аль хэдийн байсан ` +
+        `(терминал дээр нийт ${users.length})`,
+    );
+    return { deviceTotal: users.length, created, skipped, names };
+  }
+
+  /** Терминалын нэг мөрийг WinFit гишүүн болгох — `pull`/`pullAll` хуваалцана. */
+  private async applyDeviceUser(u: DeviceUserRow): Promise<{
+    action: 'created' | 'updated';
+    memberId: string;
+    name: string;
+  }> {
+    const employeeNo = u.employeeNo;
 
     // ⚠ Терминалын нэр «Бат ub93052012» хэлбэртэй байж болно —
     // бүртгэлийн дугаарыг тусад нь салгана (импорттой ижил дүрэм).

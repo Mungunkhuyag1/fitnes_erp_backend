@@ -55,6 +55,72 @@ export class AcsEventPoller {
     }
   }
 
+  /**
+   * Түүхэн ирцийг буцаж татах — нэг удаагийн импорт.
+   *
+   * ★ ЯАГААД ТУСДАА ВЭ
+   *
+   * `run()` нь сүүлийн 15 минутыг л татдаг (тасалдлыг нөхөх зориулалт).
+   * Терминал дээр сарын турших түүх хуримтлагдсан байхад түүнийг
+   * авчрах арга байгаагүй.
+   *
+   * ⚠ ӨДРӨӨР ХЭСЭГЧИЛНЭ. `fetchEvents` нь 5000 мөр дээр зогсдог тул
+   * 90 хоногийг нэг дуудлагаар авбал эхний хэдэн өдөр л ирээд
+   * үлдсэн нь чимээгүй тасарна.
+   *
+   * ⚠ БИЧИХГҮЙ — зөвхөн уншина. `dedupe_key` давхардлыг зогсоох тул
+   * дахин ажиллуулахад аюулгүй.
+   */
+  async backfill(days: number): Promise<{
+    days: number;
+    fetched: number;
+    ingested: number;
+    perDay: { day: string; fetched: number; ingested: number }[];
+  }> {
+    const perDay: { day: string; fetched: number; ingested: number }[] = [];
+    let fetched = 0;
+    let ingested = 0;
+
+    for (let d = days - 1; d >= 0; d--) {
+      const to = new Date();
+      to.setHours(0, 0, 0, 0);
+      to.setDate(to.getDate() - d + 1);
+      const from = new Date(to);
+      from.setDate(from.getDate() - 1);
+
+      const raw = (await this.device.fetchEvents(from, to)) as RawAcsEvent[];
+      let got = 0;
+      for (const e of raw) {
+        const m = mapAcsEvent(e);
+        if (!m || m.employeeNo === null) continue;
+        if (
+          await this.access.ingest({
+            employeeNo: m.employeeNo,
+            eventAt: m.eventAt,
+            granted: m.granted,
+            verifyMode: m.verifyMode,
+            reason: m.reason,
+            raw: m.raw,
+          })
+        ) {
+          got++;
+        }
+      }
+      fetched += raw.length;
+      ingested += got;
+      perDay.push({
+        day: from.toISOString().slice(0, 10),
+        fetched: raw.length,
+        ingested: got,
+      });
+    }
+
+    this.log.warn(
+      `Ирц буцаж татав: ${days} хоног, ${fetched} эвент, ${ingested} шинэ`,
+    );
+    return { days, fetched, ingested, perDay };
+  }
+
   /** Гараар ажиллуулах (`/sync` дэлгэц). */
   async run(): Promise<{ fetched: number; ingested: number }> {
     const windowMin =

@@ -49,6 +49,32 @@ export class SyncJobsController {
     return this.acsPoller.run();
   }
 
+  /**
+   * Түүхэн ирцийг терминалаас буцааж татах — нэг удаагийн импорт.
+   *
+   * ⚠ БИЧИХГҮЙ. `dedupe_key` давхардлыг зогсоох тул дахин
+   * ажиллуулахад аюулгүй.
+   */
+  @Roles(Role.ADMIN)
+  @Post('acs-backfill')
+  @ApiOperation({ summary: 'Түүхэн ирц татах (хоногоор)' })
+  async backfill(@Body() body: { days?: number }, @CurrentUser() user: AuthUser) {
+    const n = Number(body.days);
+    // ⚠ Дээд хязгаар 180: терминал өдөрт нэг дуудлага авна, түүнээс
+    // урт бол хүсэлт хэдэн минут үргэлжилж timeout болно.
+    if (!Number.isInteger(n) || n < 1 || n > 180) {
+      throw new BadRequestException('days нь 1–180 хооронд бүхэл тоо байна');
+    }
+    const r = await this.acsPoller.backfill(n);
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'access.backfill',
+      entity: 'access_event',
+      after: { days: n, fetched: r.fetched, ingested: r.ingested },
+    });
+    return r;
+  }
+
   @Post('expire')
   @ApiOperation({ summary: 'Хугацаа дууссан гишүүдийг тэмдэглэх' })
   async expire() {
@@ -187,6 +213,33 @@ export class SyncJobsController {
       entity: 'member',
       entityId: r.memberId,
       after: { employeeNo: no, name: r.name, action: r.action },
+    });
+    return r;
+  }
+
+  /**
+   * Терминал дээрх БҮХ хүнийг WinFit рүү авчрах — нэг удаагийн импорт.
+   *
+   * ⚠ БИЧИХГҮЙ. Зөвхөн терминалаас уншиж WinFit-д гишүүн үүсгэнэ.
+   * Терминал дээр юу ч өөрчлөгдөхгүй.
+   *
+   * ⚠ Байгаа гишүүнийг ХӨНДӨХГҮЙ — зөвхөн WinFit-д байхгүйг нь
+   * үүсгэнэ. Дахин ажиллуулахад аюулгүй (идемпотент).
+   */
+  @Roles(Role.ADMIN)
+  @Post('device-audit/pull-all')
+  @ApiOperation({ summary: 'Терминал → WinFit (бүх хэрэглэгч, нэг удаа)' })
+  async auditPullAll(@CurrentUser() user: AuthUser) {
+    const r = await this.deviceAuditSvc.pullAll();
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'device.auditPullAll',
+      entity: 'member',
+      after: {
+        deviceTotal: r.deviceTotal,
+        created: r.created,
+        skipped: r.skipped,
+      },
     });
     return r;
   }
