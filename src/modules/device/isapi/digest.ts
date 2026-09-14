@@ -96,6 +96,14 @@ export interface DigestOptions {
   password: string;
   /** Хүсэлтийн хугацаа (мс). Терминал удаан хариулж болно. */
   timeoutMs?: number;
+  /**
+   * Хүсэлт БҮРД нэмэгдэх толгой — Cloudflare Access service token.
+   *
+   * ⚠ Digest auth-ийн ХОЁР алхамд хоёуланд нь орох ёстой: эхний
+   * (challenge авах) хүсэлт токенгүй явбал Cloudflare 403 буцаах ба
+   * терминалын 401 хэзээ ч ирэхгүй — nonce авч чадахгүй.
+   */
+  defaultHeaders?: Record<string, string>;
 }
 
 /**
@@ -127,6 +135,7 @@ export class DigestClient {
       fetch(url, {
         method,
         headers: {
+          ...(this.opts.defaultHeaders ?? {}),
           ...headers,
           ...(auth ? { Authorization: auth } : {}),
           ...(body ? { 'Content-Type': headers['Content-Type'] ?? 'application/json' } : {}),

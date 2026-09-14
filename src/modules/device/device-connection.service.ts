@@ -13,6 +13,8 @@ export interface DeviceConnection {
   user: string;
   password: string;
   https: boolean;
+  /** Урд байгаа хамгаалалтын толгой (Cloudflare Access). Байхгүй бол undefined. */
+  headers?: Record<string, string>;
 }
 
 /** Талбар бүр хаанаас ирснийг дэлгэцэд харуулна. */
@@ -83,6 +85,31 @@ export class DeviceConnectionService {
       user: row?.username || this.config.get<string>('hikvision.user') || 'admin',
       password: stored ?? this.config.get<string>('hikvision.password') ?? '',
       https: row?.https ?? this.config.get<boolean>('hikvision.https') ?? false,
+      headers: this.accessHeaders(),
+    };
+  }
+
+  /**
+   * Cloudflare Access толгой — зөвхөн орчны хувьсагчаас.
+   *
+   * ⚠ Санд ХАДГАЛАХГҮЙ, дэлгэцээс тохируулахгүй: энэ нь терминалын
+   * нууц үг биш, дэд бүтцийн түлхүүр. Хагас (зөвхөн ID) тавибал
+   * Cloudflare бүх хүсэлтийг таслах тул хоёулаа байхыг шаардана.
+   */
+  private accessHeaders(): Record<string, string> | undefined {
+    const id = this.config.get<string>('hikvision.accessClientId');
+    const secret = this.config.get<string>('hikvision.accessClientSecret');
+    if (!id && !secret) return undefined;
+    if (!id || !secret) {
+      this.log.warn(
+        'HIK_ACCESS_CLIENT_ID / _SECRET хоёрын нэг нь л тавигдсан — ' +
+          'Cloudflare Access бүх хүсэлтийг таслана. Хоёуланг нь өгнө үү.',
+      );
+      return undefined;
+    }
+    return {
+      'CF-Access-Client-Id': id,
+      'CF-Access-Client-Secret': secret,
     };
   }
 

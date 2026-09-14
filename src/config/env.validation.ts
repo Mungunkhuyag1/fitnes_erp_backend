@@ -126,6 +126,9 @@ export const envValidationSchema = Joi.object({
   // зөвхөн анхны суулгалтын түлхэц — иймд заавал биш.
   HIK_PASSWORD: Joi.string().allow('').default(''),
   HIK_HTTPS: Joi.string().valid('true', 'false').default('false'),
+  // Cloudflare Access service token — хоёулаа эсвэл хоёулаа биш.
+  HIK_ACCESS_CLIENT_ID: Joi.string().allow('').default(''),
+  HIK_ACCESS_CLIENT_SECRET: Joi.string().allow('').default(''),
 
   // ── Hikvision ──
   // ── Мэдэгдлийн мэйл (Resend) ──

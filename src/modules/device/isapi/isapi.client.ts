@@ -8,6 +8,8 @@ export interface IsapiConfig {
   password: string;
   https?: boolean;
   timeoutMs?: number;
+  /** Cloudflare Access гэх мэт урд байгаа хамгаалалтын толгой. */
+  headers?: Record<string, string>;
 }
 
 /** Терминал хариу өгсөн ч алдаа буцаасан (ISAPI-ийн статус). */
@@ -56,6 +58,7 @@ export class IsapiClient {
       user: cfg.user,
       password: cfg.password,
       timeoutMs: cfg.timeoutMs,
+      defaultHeaders: cfg.headers,
     });
   }
 

@@ -168,6 +168,15 @@ export const configuration = () => ({
     user: process.env.HIK_USER ?? 'admin',
     password: process.env.HIK_PASSWORD,
     https: process.env.HIK_HTTPS === 'true',
+    /**
+     * Cloudflare Access service token — туннелийн урд байгаа хаалт.
+     *
+     * Хоёулаа байвал хүсэлт бүрд `CF-Access-Client-Id/Secret` толгой
+     * нэмэгдэнэ. Токенгүй хүсэлтийг Cloudflare терминалд хүргэхгүй —
+     * туннелийн хаяг нээлттэй байсан ч терминал үл үзэгдэнэ.
+     */
+    accessClientId: process.env.HIK_ACCESS_CLIENT_ID ?? '',
+    accessClientSecret: process.env.HIK_ACCESS_CLIENT_SECRET ?? '',
     /** 24/7 цагийн загварын дугаар. Цагийн хязгаар байхгүй — docs/01 §6.9. */
     planTemplateNo: process.env.HIK_PLAN_TEMPLATE_NO ?? '1',
     doorNo: toInt(process.env.HIK_DOOR_NO, 1),
