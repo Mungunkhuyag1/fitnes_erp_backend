@@ -244,6 +244,7 @@ export class DeviceAuditService {
     deviceTotal: number;
     created: number;
     skipped: number;
+    relinked: number;
     names: string[];
   }> {
     const users = await this.device.listUsers();
@@ -267,11 +268,36 @@ export class DeviceAuditService {
       if (names.length < 20) names.push(`№${u.employeeNo} ${r.name}`);
     }
 
+    // ★ ӨНЧИН ИРЦИЙГ ЭЗЭНД НЬ ХОЛБОХ
+    //
+    // Гишүүд орж ирэхээс ӨМНӨ ирц орж ирвэл (сондгойлогч 5 мин тутам
+    // ажилладаг, мөн `httpHosts` түлхэлт) `member_id` нь NULL-аар
+    // бичигдэнэ. `dedupe_key` нь давхардлыг хаадаг тул тэр мөр дахин
+    // БИЧИГДЭХГҮЙ — өөрөө хэзээ ч засагдахгүй, үүрд өнчин үлдэнэ.
+    //
+    // Тиймээс импортын дараа дугаараар нь холбоно. Зөвхөн санд —
+    // терминал руу ямар ч хүсэлт явахгүй.
+    const relinked: [unknown[], number] = await this.members.manager.query(
+      `UPDATE access_events e SET member_id = m.id
+         FROM members m
+        WHERE e.member_id IS NULL
+          AND e.employee_no IS NOT NULL
+          AND e.employee_no = m.member_no`,
+    );
+    const relinkedCount = Array.isArray(relinked) ? relinked[1] : 0;
+
     this.log.warn(
       `Терминалаас бөөнөөр авав: ${created} шинэ, ${skipped} аль хэдийн байсан ` +
-        `(терминал дээр нийт ${users.length})`,
+        `(терминал дээр нийт ${users.length}), ` +
+        `${relinkedCount} өнчин ирц эзэндээ холбогдов`,
     );
-    return { deviceTotal: users.length, created, skipped, names };
+    return {
+      deviceTotal: users.length,
+      created,
+      skipped,
+      relinked: relinkedCount,
+      names,
+    };
   }
 
   /** Терминалын нэг мөрийг WinFit гишүүн болгох — `pull`/`pullAll` хуваалцана. */
