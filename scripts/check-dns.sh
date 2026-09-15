@@ -9,6 +9,12 @@
 #
 # ⚠ DKIM-д онцгой анхаарна: 216 тэмдэгтийн мөр таслагдвал мэйл
 # ЧИМЭЭГҮЙ унана — сайт шалгахад мэдэгдэхгүй.
+#
+# ⚠ ЖАГСААЛТ НЬ БҮРЭН БАЙХ ЁСТОЙ. Эхэндээ 7 бичлэгтэй гэж үзсэн нь
+# БУРУУ байв: нэрийг нь таамаглан асуусан тул `rsend` ба
+# `_railway-verify.api` хоёр орхигдсон. Бүртгэгчийн самбараас бүтэн
+# zone-ыг харж байж жагсаалтыг бүрдүүлнэ — DNS-ээс «бүх бичлэгийг
+# өг» гэж асуух арга байдаггүй.
 
 set -uo pipefail
 NS="${1:-1.1.1.1}"
@@ -36,12 +42,16 @@ check www.winfit.mn               CNAME cf39c966e6899a68.vercel-dns-017.com.
 check admin.winfit.mn             CNAME cf39c966e6899a68.vercel-dns-017.com.
 check api.winfit.mn               CNAME 70d96in9.up.railway.app.
 check send.winfit.mn              CNAME send.forge.rmta.net.
+# Resend-ийн буцаах замын бичлэг. Тусад нь — `send`-тэй хамт ирдэггүй.
+check rsend.winfit.mn             CNAME rsend-apne1.forge.rmta.net.
 check _dmarc.winfit.mn            TXT   'v=DMARC1; p=none;'
+# Railway домэйны эзэмшил баталгаа. Алга болвол api.winfit.mn цуцлагдана.
+check _railway-verify.api.winfit.mn TXT 'railway-verify=00e1e4256ac906b624bf21e557a0e5d644f82fa97646262e953ced41be9d1f48'
 check resend._domainkey.winfit.mn TXT   "$DKIM"
 
 echo
 if [ "$bad" -eq 0 ]; then
-  echo "✓ 7/7 ЗӨВ"
+  echo "✓ 9/9 ЗӨВ"
 else
   echo "✗ $bad бичлэг буруу — засахгүйгээр nameserver БҮҮ СОЛИ"
   exit 1
