@@ -91,11 +91,26 @@ export class DeviceHealthService {
   /** Ирцийн сондгойлогчтой ижил хэмнэл. */
   @Interval('device-health', Number(process.env.DEVICE_HEALTH_MS ?? 300_000))
   async tick(): Promise<void> {
-    // ⚠ `stub` үед алгасана — локал хөгжүүлэлт мэйл цацах ёсгүй.
-    if (this.config.get<string>('gateways.device') === 'stub') return;
-
+    // ⚠ `stub` ГОРИМД Ч АЖИЛЛАНА — зориуд.
+    //
+    // Эхлээд «локал дээр мэйл цацахгүйн тулд» stub-ыг алгасаж байв.
+    // Тэр нь буруу давхаргад тавьсан хамгаалалт байлаа:
+    // `STUB_DEVICE_OFFLINE` түлхүүр нь ЯГ энэ анхааруулгыг шалгахад
+    // зориулагдсан (stub-device.gateway.ts) — алгасвал тэр хэрэгсэл
+    // чимээгүй ажиллахаа больдог.
+    //
+    // Санамсаргүй мэйлээс `MailProvider` өөрөө хамгаална:
+    // `MAIL_MODE` нь `live` биш бол жинхэнэ хаяг руу юу ч явахгүй,
+    // зөвхөн логт бичигдэнэ. Хамгаалалт нэг газар байх нь хангалттай.
     try {
       const info = await this.device.info();
+      // ⚠ Шидэхгүйгээр «унтарсан» гэж хэлж болно. `DeviceInfo.online`
+      // нь интерфейсийн нэг хэсэг — stub нь яг үүгээр офлайныг
+      // дуурайлгадаг. Зөвхөн exception хүлээвэл тэр дохиог алдана.
+      if (info.online === false) {
+        await this.down(new Error('Терминал өөрөө «офлайн» гэж мэдээллээ'));
+        return;
+      }
       await this.up(info);
     } catch (e) {
       await this.down(e);
