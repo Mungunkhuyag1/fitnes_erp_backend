@@ -178,14 +178,24 @@ export class DeviceHealthService {
     const row = await this.row();
     if (!row) return;
 
-    const alreadyDown = !row.online;
+    // ⚠ «Аль хэдийн мэдэгдсэн»-ийг `online` БИШ, `lastErrorAt`-аар
+    // тэмдэглэнэ.
+    //
+    // Эхлээд `!row.online` гэж үзэж байсан нь алдаа байв: `online`-г
+    // `remember()` ба migration ч бичдэг. 1788120000000 нь хуучин
+    // мөрийг `online=false` болгосон тул шалгагч эхний удаад
+    // «аль хэдийн мэдэгдсэн» гэж буруу дүгнэж, ХАМГИЙН ЭХНИЙ
+    // сануулгыг дуугүй алгассан.
+    //
+    // `lastErrorAt`-ыг ЗӨВХӨН энэ үйлчилгээ бичдэг тул андуурахгүй.
+    const alreadyNotified = row.lastErrorAt !== null;
     row.online = false;
     row.lastError = reason;
-    if (!alreadyDown) row.lastErrorAt = new Date();
+    if (!alreadyNotified) row.lastErrorAt = new Date();
     await this.devices.save(row);
 
     // ⚠ Унтарсан хэвээр бол дахин мэйлдэхгүй. Зөвхөн шилжилтэд.
-    if (alreadyDown) return;
+    if (alreadyNotified) return;
     if (!this.mayNotify(false)) {
       this.log.warn(`Терминал унтарлаа (${reason}) — мэйл завсарлагад таарсан тул алгаслаа`);
       return;
@@ -210,12 +220,25 @@ export class DeviceHealthService {
   /**
    * Энэ төлөвийг мэйлдэж болох уу.
    *
-   * Ижил төлөвийг хоёр удаа хэлэхгүй. Өөр төлөв ч завсарлага дуусаагүй
-   * бол хүлээнэ — санд бичигдсэн хэвээр тул дашбордод шууд харагдана.
+   * ★ ЗАВСАРЛАГА ТЭГШ БУС — зориуд
+   *
+   * Эхлээд хоёр чиглэлд адил завсарлага тавьсан нь буруу байв:
+   * 10:00-д «унтарлаа» мэйл яваад, 10:30-д заалан дээр cloudflared
+   * суулгавал «сэргэлээ» гэсэн БАТАЛГАА нь завсарлагад баригдана.
+   * Хэрэглэгчийн хамгийн их хүлээж буй мэйл яг тэр.
+   *
+   * Тиймээс:
+   *   сэргэлт — унтарснаа хэлсэн бол ҮРГЭЛЖ явна
+   *   унтралт — цагт нэгээр хязгаарлана
+   *
+   * Чичиргээний хамгаалалт хэвээр: сэргэлтийн мэйл гарахын тулд
+   * өмнө нь унтралт мэдэгдсэн байх ёстой, тэр нь цагт нэгээр
+   * хязгаарлагдсан. Өөрөөр хэлбэл хос нь цагт нэгээс хэтрэхгүй.
    */
   private mayNotify(online: boolean): boolean {
     if (this.toldOnline === online) return false;
-    if (Date.now() - this.toldAt < NOTIFY_COOLDOWN_MS) return false;
+    // Унтралтад л завсарлага үйлчилнэ.
+    if (!online && Date.now() - this.toldAt < NOTIFY_COOLDOWN_MS) return false;
     this.toldOnline = online;
     this.toldAt = Date.now();
     return true;
