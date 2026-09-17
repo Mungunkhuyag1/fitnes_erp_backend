@@ -12,6 +12,25 @@ import { IsapiError } from './isapi/isapi.client';
 /** Дараалсан хэдэн алдааны дараа «унтарсан» гэж үзэх вэ. */
 const FAIL_THRESHOLD = 3;
 
+/** Сэргэсэн гэж үзэхэд хэдэн амжилт хэрэгтэй вэ. */
+const RECOVER_THRESHOLD = 2;
+
+/**
+ * Хоёр мэйлийн ХАМГИЙН БАГА зай.
+ *
+ * ⚠ ЯАГААД ЗААВАЛ ХЭРЭГТЭЙ ВЭ
+ *
+ * «Зөвхөн шилжилтэд мэйлдэнэ» гэдэг нь холболт тогтвортой үед л
+ * хангалттай. Чичирвэл (унтарч асаад байвал) шилжилт бүр мэйл
+ * болно: 3 алдаа (15 мин) → мэйл, 1 амжилт → мэйл. 20 минутын
+ * мөчлөгөөр өдөрт ~144 мэйл, хоёр хаягт 288 — Resend-ийн өдрийн
+ * хязгаар дүүрч, ЖИНХЭНЭ сануулга дараа нь хүрэхгүй болно.
+ *
+ * Тиймээс мэйлийг цагт нэгээр хязгаарлана. Санд бүртгэх нь
+ * хязгааргүй — дашборд үргэлж яг одоогийн байдлыг харуулна.
+ */
+const NOTIFY_COOLDOWN_MS = 60 * 60_000;
+
 /**
  * Терминал амьд эсэхийг хянаж, унтарвал мэйлдэнэ.
  *
@@ -50,6 +69,18 @@ export class DeviceHealthService {
    */
   private fails = 0;
 
+  /** Дараалсан амжилт — сэргэлтийг батлахад. */
+  private oks = 0;
+
+  /**
+   * Хамгийн сүүлд МЭЙЛЭЭР хэлсэн төлөв, ба хэзээ хэлснийг.
+   *
+   * `online` талбартай ижил биш: сан нь чичиргээ бүрийг тэмдэглэнэ,
+   * энэ хоёр нь зөвхөн мэйл явуулсныг санана.
+   */
+  private toldOnline: boolean | null = null;
+  private toldAt = 0;
+
   constructor(
     @Inject(DEVICE_GATEWAY) private readonly device: DeviceGateway,
     @InjectRepository(Device) private readonly devices: Repository<Device>,
@@ -74,10 +105,16 @@ export class DeviceHealthService {
   /** Амжилттай — цохилт бичиж, унтарсан байсан бол сэргэлтийг мэдэгдэнэ. */
   private async up(info: { model?: string; firmware?: string }): Promise<void> {
     this.fails = 0;
+    this.oks++;
     const row = await this.row();
     if (!row) return;
 
     const wasDown = !row.online;
+    // ⚠ Нэг амжилтаар сэргэсэн гэж үзвэл чичиргээ бүр мэйл болно.
+    if (wasDown && this.oks < RECOVER_THRESHOLD) {
+      this.log.debug(`Терминал хариулж эхлэв (${this.oks}/${RECOVER_THRESHOLD})`);
+      return;
+    }
     const downSince = row.lastErrorAt;
     const reason = row.lastError;
 
@@ -91,6 +128,10 @@ export class DeviceHealthService {
     await this.devices.save(row);
 
     if (!wasDown) return;
+    if (!this.mayNotify(true)) {
+      this.log.log('Терминал сэргэв — мэйл завсарлагад таарсан тул алгаслаа');
+      return;
+    }
 
     const mins = downSince
       ? Math.round((Date.now() - downSince.getTime()) / 60_000)
@@ -111,6 +152,7 @@ export class DeviceHealthService {
   /** Алдаа — босго давсан үед НЭГ УДАА мэдэгдэнэ. */
   private async down(e: unknown): Promise<void> {
     this.fails++;
+    this.oks = 0;
     const { reason, fix } = classify(e);
 
     if (this.fails < FAIL_THRESHOLD) {
@@ -129,6 +171,10 @@ export class DeviceHealthService {
 
     // ⚠ Унтарсан хэвээр бол дахин мэйлдэхгүй. Зөвхөн шилжилтэд.
     if (alreadyDown) return;
+    if (!this.mayNotify(false)) {
+      this.log.warn(`Терминал унтарлаа (${reason}) — мэйл завсарлагад таарсан тул алгаслаа`);
+      return;
+    }
 
     this.log.warn(`Терминал холбогдохгүй байна: ${reason}`);
     await this.mail.notify(
@@ -144,6 +190,20 @@ export class DeviceHealthService {
         'орно, ирц ч цугларсаар байна — терминал өөрөө шийддэг. Зогсох нь ' +
         'зөвхөн дашбордоос терминал руу хандах үйлдэл.</p>',
     );
+  }
+
+  /**
+   * Энэ төлөвийг мэйлдэж болох уу.
+   *
+   * Ижил төлөвийг хоёр удаа хэлэхгүй. Өөр төлөв ч завсарлага дуусаагүй
+   * бол хүлээнэ — санд бичигдсэн хэвээр тул дашбордод шууд харагдана.
+   */
+  private mayNotify(online: boolean): boolean {
+    if (this.toldOnline === online) return false;
+    if (Date.now() - this.toldAt < NOTIFY_COOLDOWN_MS) return false;
+    this.toldOnline = online;
+    this.toldAt = Date.now();
+    return true;
   }
 
   private row(): Promise<Device | null> {
