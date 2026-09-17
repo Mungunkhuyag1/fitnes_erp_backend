@@ -206,6 +206,9 @@ export class DeviceConnectionService {
     model: string | null;
     firmware: string | null;
     lastSeenAt: Date | null;
+    online: boolean;
+    lastError: string | null;
+    lastErrorAt: Date | null;
     subnet: string | null;
   }> {
     const row = await this.row();
@@ -231,6 +234,9 @@ export class DeviceConnectionService {
       model: row?.model ?? null,
       firmware: row?.firmware ?? null,
       lastSeenAt: row?.lastSeenAt ?? null,
+      online: row?.online ?? false,
+      lastError: row?.lastError ?? null,
+      lastErrorAt: row?.lastErrorAt ?? null,
       subnet: this.localSubnet(),
     };
   }

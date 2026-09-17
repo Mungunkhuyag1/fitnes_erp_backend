@@ -27,7 +27,10 @@ export class Device {
   @Column({ type: 'varchar', length: 60, nullable: true })
   model: string | null;
 
-  @Column({ type: 'varchar', length: 45, nullable: true })
+  // ⚠ 45 биш 255. Туннелийн хост нэр (`hik.winfit.mn`, эсвэл
+  // `<uuid>.cfargotunnel.com` нь 52 тэмдэгт) IPv4-д багтахгүй.
+  // Сан нь 1788110000000-д өргөссөн; энэ мөр хоцорч байв.
+  @Column({ type: 'varchar', length: 255, nullable: true })
   ip: string | null;
 
   /**
@@ -60,6 +63,18 @@ export class Device {
 
   @Column({ name: 'last_seen_at', type: 'timestamptz', nullable: true })
   lastSeenAt: Date | null;
+
+  /**
+   * Сүүлийн бүтэлгүй шалгалтын шалтгаан — хүн уншихад зориулсан.
+   *
+   * ⚠ «Холбогдсонгүй» гэдэг хангалтгүй: 530 бол холбогч унтарсан,
+   * 502 бол терминалын IP солигдсон. Хоёр нь өөр газар засагдана.
+   */
+  @Column({ name: 'last_error', type: 'text', nullable: true })
+  lastError: string | null;
+
+  @Column({ name: 'last_error_at', type: 'timestamptz', nullable: true })
+  lastErrorAt: Date | null;
 
   @Column({ type: 'boolean', default: true })
   active: boolean;

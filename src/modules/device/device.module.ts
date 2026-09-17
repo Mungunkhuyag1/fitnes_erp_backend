@@ -9,6 +9,8 @@ import { Device } from './device.entity';
 import { DEVICE_GATEWAY } from './device.gateway';
 import { DeviceController } from './device.controller';
 import { DeviceReconcileService } from './device-reconcile.service';
+import { MailModule } from '../mail/mail.module';
+import { DeviceHealthService } from './device-health.service';
 import { DeviceAuditService } from './device-audit.service';
 import { DeviceConnectionService } from './device-connection.service';
 import { DeviceDiagnosticsService } from './device-diagnostics.service';
@@ -29,10 +31,12 @@ import { StubDeviceGateway } from './stub-device.gateway';
     TypeOrmModule.forFeature([Member, Device]),
     OutboxModule,
     AuditModule,
+    MailModule,
   ],
   controllers: [DeviceController],
   providers: [
     DeviceAuditService,
+    DeviceHealthService,
     DeviceConnectionService,
     DeviceDiagnosticsService,
     StubDeviceGateway,
