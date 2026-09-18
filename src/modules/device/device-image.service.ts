@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DeviceConnectionService } from './device-connection.service';
 import { DigestClient } from './isapi/digest';
@@ -63,7 +68,21 @@ export class DeviceImageService {
       defaultHeaders: cfg.headers,
     });
 
-    const res = await client.requestBytes('GET', path);
+    let res: { status: number; bytes: Buffer; contentType: string | null };
+    try {
+      res = await client.requestBytes('GET', path);
+    } catch (e) {
+      /*
+       * ⚠ Сүлжээний алдааг БАРИНА. `fetch` нь терминал хүрэхгүй,
+       * хугацаа хэтрэх үед `DOMException`/`TypeError` шиддэг бөгөөд
+       * Nest түүнийг «Internal server error» болгодог: дэлгэц дээр
+       * ЯАГААД гэдэг нь харагдахгүй.
+       */
+      const detail = e instanceof Error ? e.message : String(e);
+      const message = `Терминал руу холбогдож чадсангүй (${cfg.host}): ${detail}`;
+      this.log.warn(message);
+      throw new ServiceUnavailableException(message);
+    }
     if (res.status !== 200 || !res.bytes.length) {
       // Хуучин зураг дарагдсан байх нь ХЭВИЙН — алдаа гэж бүртгэхгүй.
       this.log.debug(`Зураг олдсонгүй (${res.status}): ${path}`);
