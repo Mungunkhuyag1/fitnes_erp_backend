@@ -196,10 +196,25 @@ export class LoyaltyClient {
     return this.config.get<string>('loopy.programId') ?? null;
   }
 
-  /** Loopy дээрх идэвхтэй программууд — админ сонгоход. */
+  /**
+   * Loopy дээрх идэвхтэй программууд — админ сонгоход.
+   *
+   * ⚠ Хариуны хэлбэрийг Loopy тал шийднэ: цэвэр массив ч байж болно,
+   * `{ items }` / `{ programs }` гэж боож ч болно. Зөвхөн массив хүлээвэл
+   * бусад хэлбэрт ЧИМЭЭГҮЙ хоосон жагсаалт буцаана — админ «программ
+   * үүсгэсэн атал сонгох юм алга» гэж эргэлзэнэ.
+   */
   async listPrograms(): Promise<LoyaltyProgramBrief[]> {
-    const rows = await this.call<LoyaltyProgramBrief[]>('GET', '/programs');
-    return Array.isArray(rows) ? rows : [];
+    const rows = await this.call<
+      LoyaltyProgramBrief[] | { items?: unknown; programs?: unknown }
+    >('GET', '/programs');
+    if (Array.isArray(rows)) return rows;
+    const inner = rows?.items ?? rows?.programs;
+    if (Array.isArray(inner)) return inner as LoyaltyProgramBrief[];
+    this.log.warn(
+      `Loopy /programs танихгүй хэлбэр буцаалаа: ${JSON.stringify(rows).slice(0, 200)}`,
+    );
+    return [];
   }
 
   /** Сонгосон программын enroll линк (QR, постер). */
@@ -362,14 +377,30 @@ export class LoyaltyClient {
     }
     await this.throttle();
 
-    const res = await fetch(`${this.base()}/partner/v1${path}`, {
-      method,
-      headers: {
-        'x-api-key': this.config.getOrThrow<string>('loopy.apiKey'),
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const url = `${this.base()}/partner/v1${path}`;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: {
+          'x-api-key': this.config.getOrThrow<string>('loopy.apiKey'),
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (e) {
+      /*
+       * ⚠ Сүлжээний алдааг БАРИНА. `fetch` нь хаяг буруу, домэйн
+       * олдохгүй, порт хаалттай үед `TypeError: fetch failed` шидэх
+       * бөгөөд Nest түүнийг «Internal server error» болгодог. Админ
+       * дэлгэц дээр ЯАГААД гэдгийг мэдэхгүй суудаг байв — хамгийн
+       * түгээмэл шалтгаан нь `LOOPY_API_URL` буруу байх.
+       */
+      const detail = e instanceof Error ? e.message : String(e);
+      const message = `Loopy рүү холбогдож чадсангүй (${this.base()}): ${detail}`;
+      this.log.error(message);
+      throw new ServiceUnavailableException(message);
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -381,7 +412,10 @@ export class LoyaltyClient {
         throw new PermanentError(message);
       }
       this.log.warn(message);
-      throw new Error(message);
+      // ⚠ Энгийн `Error` бол Nest нь «Internal server error» болгоно.
+      // `ServiceUnavailableException` нь `PermanentError` БИШ тул
+      // outbox түүнийг дахин оролдсон хэвээр байна.
+      throw new ServiceUnavailableException(message);
     }
 
     if (res.status === 204) return undefined as T;
