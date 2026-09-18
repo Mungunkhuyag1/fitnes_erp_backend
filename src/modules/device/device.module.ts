@@ -14,6 +14,7 @@ import { DeviceHealthService } from './device-health.service';
 import { DeviceAuditService } from './device-audit.service';
 import { DeviceConnectionService } from './device-connection.service';
 import { DeviceDiagnosticsService } from './device-diagnostics.service';
+import { DeviceImageService } from './device-image.service';
 import { DeviceService } from './device.service';
 import { DirectDeviceGateway } from './direct-device.gateway';
 import { ReadOnlyDeviceGateway } from './read-only.gateway';
@@ -39,6 +40,7 @@ import { StubDeviceGateway } from './stub-device.gateway';
     DeviceHealthService,
     DeviceConnectionService,
     DeviceDiagnosticsService,
+    DeviceImageService,
     StubDeviceGateway,
     DirectDeviceGateway,
     AgentDeviceGateway,

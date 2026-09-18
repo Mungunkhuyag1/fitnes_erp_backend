@@ -32,6 +32,9 @@ export class IsapiUserNotFound extends Error {
   }
 }
 
+import { terminalPath } from './terminal-path';
+import type { FaceInfo } from '../device.gateway';
+
 interface Json {
   [k: string]: unknown;
 }
@@ -279,8 +282,14 @@ export class IsapiClient {
   // ══════════════════════════════════════════════════════════════
 
   /** Заасан хүмүүсийн царай бүртгэгдсэн эсэх. */
-  async faceStatus(employeeNos: number[]): Promise<Record<number, boolean>> {
-    const out: Record<number, boolean> = {};
+  /**
+   * Царай бүртгэгдсэн эсэх БА зургийн зам.
+   *
+   * `FDSearch` нь тааралтын жагсаалтад `faceURL`-ыг хамт буцаадаг тул
+   * тусад нь дахин хүсэлт явуулах шаардлагагүй.
+   */
+  async faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>> {
+    const out: Record<number, FaceInfo> = {};
     for (const no of employeeNos) {
       const { status, text } = await this.json(
         'POST',
@@ -294,12 +303,23 @@ export class IsapiClient {
         }),
       );
       if (status !== 200) {
-        out[no] = false;
+        out[no] = { enrolled: false, path: null };
         continue;
       }
       const parsed = this.parse(text);
       const total = Number(parsed.totalMatches ?? parsed.numOfMatches ?? 0);
-      out[no] = total > 0;
+      const list = parsed.MatchList;
+      const first =
+        Array.isArray(list) && list.length
+          ? (list[0] as Record<string, unknown>)
+          : null;
+      out[no] = {
+        enrolled: total > 0,
+        // ⚠ Зөвхөн ЗАМ. Терминалын хаяг нь хариунд байдаг ч хадгалахгүй.
+        path: terminalPath(
+          typeof first?.faceURL === 'string' ? first.faceURL : null,
+        ),
+      };
     }
     return out;
   }

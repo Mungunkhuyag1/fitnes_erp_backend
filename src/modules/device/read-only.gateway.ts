@@ -6,6 +6,7 @@ import type {
   DeviceUserRow,
   SetValidityInput,
   UpsertUserInput,
+  FaceInfo,
 } from './device.gateway';
 
 /**
@@ -65,7 +66,7 @@ export class ReadOnlyDeviceGateway implements DeviceGateway {
   }
 
   // ── Зөвшөөрсөн ──
-  faceStatus(employeeNos: number[]): Promise<Record<number, boolean>> {
+  faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>> {
     return this.inner.faceStatus(employeeNos);
   }
   listUsers(): Promise<DeviceUserRow[]> {

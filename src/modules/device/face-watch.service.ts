@@ -57,7 +57,12 @@ export class FaceWatchService {
     if (!waiting.length) return 0;
 
     const status = await this.device.faceStatus(waiting.map((m) => m.memberNo));
-    const enrolled = waiting.filter((m) => status[m.memberNo]);
+    /*
+     * ⚠ `status[no]` нь ОБЪЕКТ. Түүнийг шууд үнэн/худал гэж шалгавал
+     * объект бүр truthy тул хүлээгдэж буй БҮХ гишүүнийг «бүртгэгдсэн»
+     * гэж тэмдэглэнэ.
+     */
+    const enrolled = waiting.filter((m) => status[m.memberNo]?.enrolled);
     if (!enrolled.length) return 0;
 
     const now = new Date();
@@ -65,6 +70,25 @@ export class FaceWatchService {
       { id: In(enrolled.map((m) => m.id)) },
       { faceEnrolled: true, faceEnrolledAt: now },
     );
+
+    /*
+     * Царайн зургийн ЗАМ — хост нь тохиргоонд, зам нь мөрөнд.
+     *
+     * ⚠ Бүтэн хаягийг хадгалж болохгүй: терминалын IP нь DHCP-ээр
+     * солигдож, ирээдүйд домэйн болж мэднэ. Байтыг нь ч хадгалахгүй —
+     * харуулах агшинд терминалаас нь татна.
+     *
+     * Гишүүн бүрд тусад нь бичнэ (зам нь өөр өөр) ч энэ нь ховор
+     * үйлдэл: царай нэг л удаа бүртгэгдэнэ.
+     */
+    for (const m of enrolled) {
+      const path = status[m.memberNo]?.path;
+      if (!path) continue;
+      await this.members.update(
+        { id: m.id },
+        { photoPath: path, photoAt: now },
+      );
+    }
     this.log.log(
       `Царай бүртгэгдэв: ${enrolled.map((m) => `${m.name}(№${m.memberNo})`).join(', ')}`,
     );

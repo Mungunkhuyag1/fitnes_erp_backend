@@ -86,6 +86,7 @@ export class DeviceWebhookController {
         granted: m.granted,
         verifyMode: m.verifyMode,
         raw: m.raw,
+        pictureUrl: m.pictureUrl,
       });
       if (ok) ingested++;
     }

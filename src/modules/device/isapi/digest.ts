@@ -127,6 +127,35 @@ export class DigestClient {
     body?: string,
     headers: Record<string, string> = {},
   ): Promise<{ status: number; text: string }> {
+    const res = await this.exec(method, path, body, headers);
+    return { status: res.status, text: await res.text() };
+  }
+
+  /**
+   * ХОЁРТЫН хариу — зураг татахад.
+   *
+   * ⚠ `request()` нь `res.text()` дууддаг: JPEG-ийг мөр болгон уншвал
+   * байт нь гажиж, буцааж сэргээх боломжгүй болно.
+   */
+  async requestBytes(
+    method: string,
+    path: string,
+  ): Promise<{ status: number; bytes: Buffer; contentType: string | null }> {
+    const res = await this.exec(method, path);
+    return {
+      status: res.status,
+      bytes: Buffer.from(await res.arrayBuffer()),
+      contentType: res.headers.get('content-type'),
+    };
+  }
+
+  /** Digest гар барилтыг гүйцэтгээд ТҮҮХИЙ хариуг буцаана. */
+  private async exec(
+    method: string,
+    path: string,
+    body?: string,
+    headers: Record<string, string> = {},
+  ): Promise<Response> {
     const url = `${this.baseUrl.replace(/\/$/, '')}${path}`;
     // `uri` нь ЗАМ (query-тэйгээ), бүтэн URL биш — эс тэгвээс hash таарахгүй.
     const uri = path;
@@ -150,7 +179,7 @@ export class DigestClient {
       res = await send(
         buildHeader(this.challenge, this.opts.user, this.opts.password, method, uri),
       );
-      if (res.status !== 401) return this.finish(res);
+      if (res.status !== 401) return res;
       // nonce хуучирсан байж болно — challenge-ыг шинэчилнэ.
       this.challenge = null;
     } else {
@@ -158,7 +187,7 @@ export class DigestClient {
     }
 
     // 2) Challenge авах.
-    if (res.status !== 401) return this.finish(res);
+    if (res.status !== 401) return res;
     const header = res.headers.get('www-authenticate');
     if (!header) {
       throw new DigestAuthError('Терминал WWW-Authenticate буцаасангүй');
@@ -183,11 +212,7 @@ export class DigestClient {
           '⚠ ДАХИН БҮҮ ОРОЛД — 5 удаа буруу оруулбал IP 30 минут түгжигдэнэ.',
       );
     }
-    return this.finish(res);
-  }
-
-  private async finish(res: Response) {
-    return { status: res.status, text: await res.text() };
+    return res;
   }
 
   /** Нууц үг солигдсон эсвэл гараар дахин холбогдох үед. */

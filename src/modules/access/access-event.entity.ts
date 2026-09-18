@@ -75,6 +75,15 @@ export class AccessEvent {
    * ижил эвент 2 удаа ирж болно.
    */
   @Index('uq_access_dedupe', { unique: true })
+  /**
+   * Уншуулах үеийн зургийн зам (`/LOCALS/pic/...`).
+   *
+   * ⚠ ЗӨВХӨН ЗАМ — терминалын хаяг нь тохиргоонд байдаг. Бүтэн хаяг
+   * хадгалбал IP солигдоход эзэнгүй болно.
+   */
+  @Column({ name: 'picture_path', type: 'varchar', length: 300, nullable: true })
+  picturePath: string | null;
+
   @Column({ name: 'dedupe_key', type: 'varchar', length: 80 })
   dedupeKey: string;
 

@@ -7,6 +7,7 @@ import { pageResult, type PageResult } from '../../common/dto/paginated';
 import { MemberStatus } from '../../common/enums/member-status.enum';
 import { startOfLocalDay } from '../../common/utils/date.util';
 import { Member } from '../member/member.entity';
+import { terminalPath } from '../device/isapi/terminal-path';
 import { AccessEvent, AccessReason } from './access-event.entity';
 import type { ListAccessEventsDto } from './dto/access.dto';
 
@@ -20,6 +21,8 @@ export interface IngestInput {
   raw?: Record<string, unknown> | null;
   /** Терминалаас ирсэн дугаар — байвал давхардлыг үүгээр шүүнэ. */
   eventSeq?: number | null;
+  /** Уншуулах үеийн зургийн бүтэн хаяг — замыг нь салгаж хадгална. */
+  pictureUrl?: string | null;
 }
 
 @Injectable()
@@ -70,6 +73,9 @@ export class AccessService {
         granted,
         reason,
         verifyMode: input.verifyMode ?? null,
+        // ⚠ Хостыг нь ХАЯНА: терминалын IP солигдоход хадгалсан бүтэн
+        // хаяг эзэнгүй болно (1788140000000).
+        picturePath: terminalPath(input.pictureUrl),
         // `jsonb`-ийн TypeORM төрөл QueryBuilder-т таарахгүй тул cast хийнэ.
         raw: (input.raw ?? null) as never,
         dedupeKey: this.dedupeKey(input),
@@ -241,6 +247,10 @@ export class AccessService {
       reason: r.reason,
       reasonLabel: REASON_LABEL[r.reason] ?? r.reason,
       verifyMode: r.verifyMode,
+      // ⚠ ЗАМ — дэлгэц нь `/devices/image?path=…`-аар татна. Бүтэн
+      // хаяг өгвөл браузер терминал руу шууд хандах ба нэвтрэлт,
+      // сүлжээ хоёулаа зөрчилдөнө.
+      picturePath: r.picturePath,
     }));
   }
 }

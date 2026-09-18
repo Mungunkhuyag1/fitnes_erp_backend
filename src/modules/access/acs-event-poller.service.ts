@@ -101,6 +101,7 @@ export class AcsEventPoller {
             verifyMode: m.verifyMode,
             reason: m.reason,
             raw: m.raw,
+            pictureUrl: m.pictureUrl,
           })
         ) {
           got++;
@@ -142,6 +143,7 @@ export class AcsEventPoller {
         granted: m.granted,
         verifyMode: m.verifyMode,
         raw: m.raw,
+        pictureUrl: m.pictureUrl,
       });
       if (ok) ingested++;
     }

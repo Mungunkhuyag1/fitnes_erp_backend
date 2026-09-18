@@ -7,9 +7,11 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Res,
   Query,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -17,6 +19,7 @@ import { Role } from '../../common/enums/role.enum';
 import { AuditService } from '../audit/audit.service';
 import { DeviceConnectionService } from './device-connection.service';
 import { DeviceDiagnosticsService } from './device-diagnostics.service';
+import { DeviceImageService } from './device-image.service';
 import { DeviceService } from './device.service';
 import { StubDeviceGateway } from './stub-device.gateway';
 import { DirectDeviceGateway } from './direct-device.gateway';
@@ -31,6 +34,7 @@ export class DeviceController {
     private readonly audit: AuditService,
     private readonly diag: DeviceDiagnosticsService,
     private readonly addr: DeviceConnectionService,
+    private readonly images: DeviceImageService,
     private readonly direct: DirectDeviceGateway,
     private readonly stub: StubDeviceGateway,
     private readonly config: ConfigService,
@@ -130,6 +134,26 @@ export class DeviceController {
    *
    * ⚠ Зөвхөн УНШИНА. Оношилгоо нь терминалын төлөвийг өөрчлөх ёсгүй.
    */
+  /**
+   * Терминал дээрх зураг — ирцийн кадр, гишүүний царай.
+   *
+   * ⚠ Зам нь параметрээр ирдэг тул `DeviceImageService` дотор ДАХИН
+   * шалгагдана: `/LOCALS/` угтваргүй зам хүлээж авахгүй.
+   */
+  @Get('image')
+  @ApiOperation({ summary: 'Терминал дээрх зураг (зам параметрээр)' })
+  async image(
+    @Query('path') path: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { bytes, contentType } = await this.images.fetch(path ?? '');
+    res.setHeader('Content-Type', contentType);
+    // Зураг өөрчлөгддөггүй — браузер кэшлэвэл терминал руу дахин
+    // хандахгүй. Хувийн мэдээлэл тул `private`.
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.send(bytes);
+  }
+
   @Roles(Role.MANAGER)
   @Get('diagnose')
   @ApiOperation({ summary: 'Терминалын ISAPI оношилгоо' })

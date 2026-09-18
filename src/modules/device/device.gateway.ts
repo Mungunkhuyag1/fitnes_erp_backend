@@ -59,6 +59,17 @@ export interface DeviceUserRow {
   enable: boolean;
 }
 
+/**
+ * Царайны төлөв ба зураг.
+ *
+ * ⚠ `path` нь терминалын ДОТООД зам (`/LOCALS/...`), хосттой БҮТЭН
+ * хаяг БИШ: IP солигдоход хадгалсан хаяг эзэнгүй болно.
+ */
+export interface FaceInfo {
+  enrolled: boolean;
+  path: string | null;
+}
+
 export interface DeviceGateway {
   /** Хэрэглэгч үүсгэх / шинэчлэх (идемпотент — `employeeNo` дээр upsert). */
   upsertUser(input: UpsertUserInput): Promise<void>;
@@ -85,7 +96,7 @@ export interface DeviceGateway {
   listUsers(): Promise<DeviceUserRow[]>;
 
   /** Заасан хүмүүсийн царай бүртгэгдсэн эсэх. */
-  faceStatus(employeeNos: number[]): Promise<Record<number, boolean>>;
+  faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>>;
 
   openDoor(doorNo?: number): Promise<void>;
 

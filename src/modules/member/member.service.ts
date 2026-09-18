@@ -140,6 +140,8 @@ export interface MemberDetail extends MemberRow {
   emergencyName: string | null;
   emergencyPhone: string | null;
   faceEnrolledAt: Date | null;
+  photoPath?: string | null;
+  photoAt?: Date | null;
   hikSyncedAt: Date | null;
   loopyCardSerial: string | null;
   /** Wallet-д нэмсэн төхөөрөмжийн тоо. `null` = хараахан шалгаагүй. */
@@ -301,6 +303,9 @@ export class MemberService {
       emergencyName: m.emergencyName,
       emergencyPhone: m.emergencyPhone,
       faceEnrolledAt: m.faceEnrolledAt,
+      /** Терминал дээрх царайн зургийн ЗАМ — хостгүй. */
+      photoPath: m.photoPath,
+      photoAt: m.photoAt,
       hikSyncedAt: m.hikSyncedAt,
       loopyCardSerial: m.loopyCardSerial,
       walletDevices: m.walletDevices,

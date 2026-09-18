@@ -5,6 +5,7 @@ import type {
   DeviceUserRow,
   SetValidityInput,
   UpsertUserInput,
+  FaceInfo,
 } from './device.gateway';
 
 /**
@@ -27,7 +28,7 @@ export class AgentDeviceGateway implements DeviceGateway {
   setValidity(_input: SetValidityInput): Promise<void> {
     this.notReady();
   }
-  faceStatus(_employeeNos: number[]): Promise<Record<number, boolean>> {
+  faceStatus(_employeeNos: number[]): Promise<Record<number, FaceInfo>> {
     this.notReady();
   }
   listUsers(): Promise<DeviceUserRow[]> {

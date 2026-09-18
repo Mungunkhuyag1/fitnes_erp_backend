@@ -15,6 +15,7 @@ import {
   type SetValidityInput,
   type DeviceUserRow,
   type UpsertUserInput,
+  type FaceInfo,
 } from './device.gateway';
 
 /**
@@ -165,7 +166,7 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
     });
   }
 
-  async faceStatus(employeeNos: number[]): Promise<Record<number, boolean>> {
+  async faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>> {
     return this.guard(() => this.api().faceStatus(employeeNos));
   }
 

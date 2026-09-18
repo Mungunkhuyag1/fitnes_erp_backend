@@ -2,7 +2,11 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { basename, join } from 'path';
 import { ConfigService } from '@nestjs/config';
-import { MissingDeviceUserError, type DeviceUserRow } from './device.gateway';
+import {
+  MissingDeviceUserError,
+  type DeviceUserRow,
+  type FaceInfo,
+} from './device.gateway';
 import type {
   DeviceGateway,
   DeviceInfo,
@@ -244,13 +248,21 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
     }));
   }
 
-  async faceStatus(employeeNos: number[]): Promise<Record<number, boolean>> {
+  async faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>> {
     await this.simulate('faceStatus');
     const now = Date.now();
-    const out: Record<number, boolean> = {};
+    const out: Record<number, FaceInfo> = {};
     for (const no of employeeNos) {
       const u = this.users.get(no);
-      out[no] = !!u && now >= u.faceAt;
+      const enrolled = !!u && now >= u.faceAt;
+      out[no] = {
+        enrolled,
+        // Жинхэнэ терминалынхтай ижил хэлбэр — зам нь `/LOCALS/`-ээр
+        // эхэлнэ. Байт нь байхгүй тул татахад 404 ирнэ.
+        path: enrolled
+          ? `/LOCALS/pic/enrlFace/0/${String(no).padStart(10, '0')}.jpg`
+          : null,
+      };
     }
     return out;
   }
