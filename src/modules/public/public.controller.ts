@@ -14,7 +14,11 @@ import { ApiExcludeEndpoint, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
-import { LookupDto, PublicInvoiceDto } from './dto/public.dto';
+import {
+  LookupDto,
+  PublicInvoiceDto,
+  PublicRegisterDto,
+} from './dto/public.dto';
 import { InvoiceService } from '../invoice/invoice.service';
 import { PublicService } from './public.service';
 
@@ -53,6 +57,25 @@ export class PublicController {
   })
   lookup(@Body() dto: LookupDto) {
     return this.svc.lookup(dto.phone);
+  }
+
+  /**
+   * Өөрөө бүртгүүлэх.
+   *
+   * ⚠ Мөр ҮҮСГЭДЭГ нийтийн цорын ганц endpoint тул хязгаар нь чанга:
+   * 10 минутад 5. Бүртгэл бүр терминал руу нэг команд, Loopy руу нэг
+   * дуудлага үүсгэдэг — спам нь зөвхөн DB биш, төхөөрөмжийг ч дүүргэнэ.
+   */
+  @Post('register')
+  @Throttle({ default: { limit: 5, ttl: 600_000 } })
+  @ApiOperation({
+    summary: 'Онлайн бүртгүүлэх',
+    description:
+      'Нэр, утас хоёроор гишүүн үүсгэнэ. Бүртгэлтэй дугаар байвал ' +
+      'шинээр үүсгэхгүй, `lookup`-тай ижил хариу буцаана.',
+  })
+  register(@Body() dto: PublicRegisterDto) {
+    return this.svc.register(dto);
   }
 
   @Get('members/:token')

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -17,6 +18,7 @@ import {
 } from '../../common/utils/phone.util';
 import { InvoiceService } from '../invoice/invoice.service';
 import { Member } from '../member/member.entity';
+import { MemberService } from '../member/member.service';
 import { AUDIENCE_LABEL } from '../../common/enums/audience.enum';
 import { Package } from '../package/package.entity';
 import { PromotionChannel } from '../promotion/promotion.entity';
@@ -43,6 +45,7 @@ export class PublicService {
     @InjectRepository(Member) private readonly members: Repository<Member>,
     @InjectRepository(Package) private readonly packages: Repository<Package>,
     private readonly promotions: PromotionService,
+    private readonly memberService: MemberService,
     private readonly invoices: InvoiceService,
     private readonly settings: SettingsService,
     private readonly config: ConfigService,
@@ -111,6 +114,69 @@ export class PublicService {
       };
     });
     return { gymName: await this.settings.get('gym_name'), packages: priced };
+  }
+
+  /**
+   * Онлайнаар өөрөө бүртгүүлэх.
+   *
+   * ★ ЯАГААД ХЭРЭГТЭЙ ВЭ
+   *
+   * Урьд нь бүртгэлгүй хүн `/pay` дээр «Ресепшнд хандана уу» гэсэн
+   * мухардалд ордог байв: шөнө дунд эрх авах гэж орсон хүн маргааш
+   * хүртэл хүлээнэ. Одоо өөрөө бүртгүүлээд шууд төлнө.
+   *
+   * ⚠ Ресепшний бүртгэлтэй ЯГ ИЖИЛ зам: `MemberService.create()` нь
+   * гишүүний дугаар олгож, терминал руу бичих ба Loopy-гийн
+   * зөвшөөрөгдсөн жагсаалтад нэмэх даалгаврыг нэг гүйлгээнд дараална.
+   * Энд дахин бичвэл хоёр зам салж, аль нэг нь ардаа үлдэнэ.
+   *
+   * ⚠ Эрхийн цонх ХООСОН (`accessEndsAt` байхгүй): хэрэглэгч терминал
+   * дээр үүсэх тул царайгаа бүртгүүлж чадна ч ХААЛГА НЭЭГДЭХГҮЙ.
+   * Төлбөр хийгдэж гишүүнчлэл үүсэх хүртэл тэр хэвээр.
+   */
+  async register(input: { name: string; phone: string }) {
+    if (!isValidPhone(input.phone)) {
+      throw new BadRequestException('Утасны дугаар 8 оронтой байх ёстой');
+    }
+    const phone = normalizePhone(input.phone)!;
+
+    // Бүртгэлтэй бол ШИНЭЭР ҮҮСГЭХГҮЙ — `lookup`-тай ижил хариу буцаана.
+    // ⚠ «Энэ дугаар Болд (№1042) дээр бүртгэлтэй» гэсэн дотоод алдааг
+    // гадагш гаргаж болохгүй: хэн ч дугаар оруулаад нэр, дугаарыг нь
+    // мэдэх боломжтой болно.
+    const existing = await this.members.findOne({ where: { phone } });
+    if (existing) {
+      return existing.status === MemberStatus.CANCELLED
+        ? { found: false as const }
+        : { found: true as const, maskedName: maskName(existing.name), created: false };
+    }
+
+    try {
+      const created = await this.memberService.create({
+        name: input.name,
+        phone,
+      });
+      this.log.log(`Онлайн бүртгэл: №${created.memberNo}`);
+      return {
+        found: true as const,
+        maskedName: maskName(created.name),
+        created: true,
+      };
+    } catch (e) {
+      // Зэрэг хоёр хүсэлт — хоёр дахь нь мөргөнө. Хэрэглэгчийн хувьд
+      // бүртгэл БИЙ болсон тул амжилт гэж үзнэ.
+      if (e instanceof ConflictException) {
+        const row = await this.members.findOne({ where: { phone } });
+        if (row) {
+          return {
+            found: true as const,
+            maskedName: maskName(row.name),
+            created: false,
+          };
+        }
+      }
+      throw e;
+    }
   }
 
   // ── 1-р түвшин ──
