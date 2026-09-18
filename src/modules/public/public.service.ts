@@ -100,9 +100,14 @@ export class PublicService {
         // Урамшуулалтай бол анхны утгыг зурж харуулна.
         basePrice: promoted ? q.basePrice : null,
         baseDays: promoted ? q.baseDays : null,
-        // Давхарласан бүх урамшууллын нэр — хэрэглэгч юунаас болж
-        // хямдарснаа харах ёстой.
-        promotions: q.promotions.map((x) => ({ name: x.name })),
+        // Давхарласан бүх урамшуулал — нэр ба ХЭДЭН ТӨГРӨГ (эсвэл хоног)
+        // нөлөөлснөөр нь. Зөвхөн нэр харуулбал «20% + 50,000₮» гэж
+        // давхарласан үед аль нь хэдийг хямдруулсныг хэлж чадахгүй.
+        promotions: q.promotions.map((x) => ({
+          name: x.name,
+          kind: x.kind,
+          valueApplied: x.valueApplied,
+        })),
       };
     });
     return { gymName: await this.settings.get('gym_name'), packages: priced };
