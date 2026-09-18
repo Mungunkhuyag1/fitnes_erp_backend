@@ -8,6 +8,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -84,6 +85,16 @@ export class UpdateSettingsDto {
   @IsInt()
   @Min(1)
   freeze_min_days?: number;
+
+  @ApiPropertyOptional({
+    example: 60,
+    description: 'Давхарласан урамшууллын нийт хөнгөлөлтийн дээд хязгаар (%)',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  promo_max_discount_pct?: number;
 
   @ApiPropertyOptional({ description: 'Бэлгийн картын Loopy программ' })
   @IsOptional()

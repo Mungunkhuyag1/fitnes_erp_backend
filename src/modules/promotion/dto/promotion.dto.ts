@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsDate,
   IsEnum,
   IsInt,
@@ -57,6 +58,23 @@ export class CreatePromotionDto {
   @ArrayUnique()
   @IsEnum(PromotionChannel, { each: true })
   channels?: PromotionChannel[];
+
+  @ApiPropertyOptional({
+    description:
+      'Давхарлахыг зогсоох — зөвхөн энэ урамшуулал үйлчилнэ. `fixed_price` үргэлж онцгой.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  exclusive?: boolean;
+
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Давхарлах дараалал — их нь түрүүлж хэрэглэгдэнэ',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  sortOrder?: number;
 }
 
 export class UpdatePromotionDto {
@@ -104,4 +122,21 @@ export class UpdatePromotionDto {
   @ArrayUnique()
   @IsEnum(PromotionChannel, { each: true })
   channels?: PromotionChannel[];
+
+  @ApiPropertyOptional({
+    description:
+      'Давхарлахыг зогсоох — зөвхөн энэ урамшуулал үйлчилнэ. `fixed_price` үргэлж онцгой.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  exclusive?: boolean;
+
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Давхарлах дараалал — их нь түрүүлж хэрэглэгдэнэ',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  sortOrder?: number;
 }

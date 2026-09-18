@@ -19,11 +19,9 @@ import { maskName } from '../../common/utils/phone.util';
 import { Member } from '../member/member.entity';
 import { MembershipService } from '../membership/membership.service';
 import { InvoiceMember } from './invoice-member.entity';
+import { InvoicePromotion } from './invoice-promotion.entity';
 import { Package } from '../package/package.entity';
-import {
-  PromotionChannel,
-  PromotionKind,
-} from '../promotion/promotion.entity';
+import { PromotionChannel } from '../promotion/promotion.entity';
 import { PromotionService } from '../promotion/promotion.service';
 import { BonumService } from './bonum.service';
 import type { CreateInvoiceDto, ListInvoicesDto } from './dto/invoice.dto';
@@ -61,6 +59,8 @@ export class InvoiceService {
     @InjectRepository(Invoice) private readonly repo: Repository<Invoice>,
     @InjectRepository(InvoiceMember)
     private readonly invoiceMembers: Repository<InvoiceMember>,
+    @InjectRepository(InvoicePromotion)
+    private readonly invoicePromotions: Repository<InvoicePromotion>,
     @InjectRepository(Member) private readonly members: Repository<Member>,
     @InjectRepository(Package) private readonly packages: Repository<Package>,
     private readonly bonum: BonumService,
@@ -151,10 +151,10 @@ export class InvoiceService {
         // төлөгдсөн нэхэмжлэх хөндөгдөх ёсгүй (`days`/`amount`-тай ижил).
         needsApproval: pkg.requiresProof,
         // Урамшууллын дараах утгыг ХУУЛБАРЛАНА: урамшуулал дуусахад
-        // аль хэдийн үүссэн нэхэмжлэх хөндөгдөх ёсгүй.
+        // аль хэдийн үүссэн нэхэмжлэх хөндөгдөх ёсгүй. Хэрэглэсэн
+        // урамшууллуудыг `invoice_promotions`-д мөр тус бүрээр хадгална.
         days: quote.days,
         amount: String(quote.price),
-        promotionId: quote.promotion?.id ?? null,
         status: InvoiceStatus.PENDING,
         provider: 'bonum',
         transactionId,
@@ -162,6 +162,23 @@ export class InvoiceService {
         createdBy: staffUserId,
       }),
     );
+
+    // ⚠ Хэрэглэсэн урамшуулал бүрийг ХУУЛБАРЛАНА — хэдэн төгрөг
+    // хөнгөлснийг ЭНД тогтоох нь чухал: багцын үнэ дараа өөрчлөгдвөл
+    // төлөгдөх агшинд дахин тооцоолж болохгүй.
+    if (quote.promotions.length) {
+      await this.invoicePromotions.save(
+        quote.promotions.map((q, i) =>
+          this.invoicePromotions.create({
+            invoiceId: invoice.id,
+            promotionId: q.id,
+            kind: q.kind,
+            valueApplied: String(q.valueApplied),
+            sortOrder: i,
+          }),
+        ),
+      );
+    }
 
     // Хосын багц: хамтрагчийг холбоно. Гишүүнчлэл нь ТӨЛӨГДӨХ агшинд
     // тус бүрд үүснэ — энд зөвхөн «хэн хэн» гэдгийг тэмдэглэнэ.
@@ -554,6 +571,11 @@ export class InvoiceService {
   /**
    * Урамшууллын ашиглалтыг бүртгэнэ.
    *
+   * ⚠ Дүнг ДАХИН ТООЦООЛОХГҮЙ: нэхэмжлэх үүсэх агшинд хуулбарласан
+   * `invoice_promotions` мөрүүдээс шууд уншина. Өмнө нь багцын үнээс
+   * хасаж тооцдог байсан — багцын үнэ завсарт өөрчлөгдвөл статистик
+   * буруу тоо бүртгэдэг байв.
+   *
    * ⚠ Бүртгэл унасан ч төлбөр БҮТЭХ ёстой — статистик нь мөнгө хүлээн
    * авахыг зогсоох ёсгүй.
    */
@@ -561,27 +583,21 @@ export class InvoiceService {
     invoice: Invoice,
     membershipId: string,
   ): Promise<void> {
-    if (!invoice.promotionId) return;
     try {
-      const pkg = invoice.packageId
-        ? await this.packages.findOne({ where: { id: invoice.packageId } })
-        : null;
-      const base = pkg ? Number(pkg.price) : Number(invoice.amount);
-      const off = Math.max(0, base - Number(invoice.amount));
-      const promo = await this.promotions.byId(invoice.promotionId);
-      if (!promo) return;
-      await this.promotions.record({
-        promotionId: invoice.promotionId,
-        memberId: invoice.memberId,
-        membershipId,
-        invoiceId: invoice.id,
-        kind: promo.kind,
-        // Хоног нэмэх урамшуулалд нэмэгдсэн ХОНОГ, бусдад ХӨНГӨЛСӨН ДҮН.
-        valueApplied:
-          promo.kind === PromotionKind.BONUS_DAYS
-            ? Math.max(0, invoice.days - (pkg?.days ?? invoice.days))
-            : off,
+      const applied = await this.invoicePromotions.find({
+        where: { invoiceId: invoice.id },
+        order: { sortOrder: 'ASC' },
       });
+      for (const row of applied) {
+        await this.promotions.record({
+          promotionId: row.promotionId,
+          memberId: invoice.memberId,
+          membershipId,
+          invoiceId: invoice.id,
+          kind: row.kind,
+          valueApplied: Number(row.valueApplied),
+        });
+      }
     } catch (e) {
       this.log.warn(
         `Урамшууллын бүртгэл хийгдсэнгүй: ${(e as Error).message}`,

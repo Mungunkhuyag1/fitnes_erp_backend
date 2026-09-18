@@ -53,39 +53,58 @@ export class PublicService {
   }
 
   /**
-   * Онлайнаар зарагдах багцууд.
+   * Идэвхтэй БҮХ багц — нүүр хуудасны үнийн самбар ба `/pay`-д.
    *
-   * ⚠ `online: true` шүүлтүүр ЗААВАЛ: хосын багц нь хоёр гишүүнийг
-   * зэрэг сонгохыг шаарддаг тул онлайн урсгалд тохирохгүй. Шүүхгүй бол
-   * хэрэглэгч 1,100,000₮ төлчихөөд нөгөө хүнээ заах газаргүй үлдэнэ.
+   * ★ `payable` нь «онлайнаар ТӨЛЖ болох уу» гэдгийг заана
+   *
+   * Хосын багц нь хоёр гишүүнийг зэрэг сонгохыг шаарддаг тул онлайн
+   * урсгалд тохирохгүй — гэхдээ ЗАРАГДДАГ. Жагсаалтаас нуувал хүн
+   * тухайн үйлчилгээ байгааг мэдэхгүй; харуулаад «ресепшн дээр авна»
+   * гэж хэлэх нь зөв.
+   *
+   * ⚠ `payable` нь ЗӨВХӨН дэлгэцийн тэмдэг. Жинхэнэ хамгаалалт нь
+   * `createInvoice()` доторх шалгалт — жагсаалтад итгэвэл хэн ч
+   * `packageId`-г гараар илгээж хосын багц худалдаж авна.
    */
   async listPackages() {
     const rows = await this.packages.find({
-      where: { active: true, online: true },
+      where: { active: true },
       order: { sortOrder: 'ASC', price: 'ASC' },
     });
     // ⚠ Үнийг СЕРВЕР тооцоолно. Урамшууллыг зөвхөн дэлгэц дээр зурвал
     // жинхэнэ үнэ нь өөр байж, хэрэглэгч гайхна.
-    const priced = await Promise.all(
-      rows.map(async (p) => {
-        const q = await this.promotions.quote(p, PromotionChannel.ONLINE);
-        return {
-          id: p.id,
-          name: p.name,
-          days: q.days,
-          price: q.price,
-          audience: p.audience,
-          audienceLabel: AUDIENCE_LABEL[p.audience] ?? p.audience,
-          // Дэлгэц эдгээрийг бүлэглэх, анхааруулах, тэмдэглэхэд ашиглана.
-          requiresProof: p.requiresProof,
-          firstTimeOnly: p.firstTimeOnly,
-          // Урамшуулалтай бол анхны утгыг зурж харуулна.
-          basePrice: q.promotion ? q.basePrice : null,
-          baseDays: q.promotion ? q.baseDays : null,
-          promotion: q.promotion ? { name: q.promotion.name } : null,
-        };
-      }),
+    //
+    // ⚠ Багц тус бүрд `quote()` дуудвал урамшууллын жагсаалт дахин дахин
+    // уншигдана — `quoteMany` нь нэг удаа уншаад бүгдэд хэрэглэнэ.
+    // ⚠ Суваг нь багцаас хамаарна. Ресепшнээр зарагддаг багцад ОНЛАЙН
+    // урамшууллыг бодвол нүүр хуудас 935,000₮ гэж зарлаад ресепшн
+    // 1,100,000₮ авна — зочин хуурагдсан гэж бодно.
+    const quotes = await this.promotions.quoteMany(rows, (p) =>
+      isPayable(p) ? PromotionChannel.ONLINE : PromotionChannel.RECEPTION,
     );
+    const priced = rows.map((p) => {
+      const q = quotes.get(p.id)!;
+      const promoted = q.promotions.length > 0;
+      return {
+        id: p.id,
+        name: p.name,
+        days: q.days,
+        price: q.price,
+        audience: p.audience,
+        audienceLabel: AUDIENCE_LABEL[p.audience] ?? p.audience,
+        // Дэлгэц эдгээрийг бүлэглэх, анхааруулах, тэмдэглэхэд ашиглана.
+        requiresProof: p.requiresProof,
+        firstTimeOnly: p.firstTimeOnly,
+        seats: p.seats,
+        payable: isPayable(p),
+        // Урамшуулалтай бол анхны утгыг зурж харуулна.
+        basePrice: promoted ? q.basePrice : null,
+        baseDays: promoted ? q.baseDays : null,
+        // Давхарласан бүх урамшууллын нэр — хэрэглэгч юунаас болж
+        // хямдарснаа харах ёстой.
+        promotions: q.promotions.map((x) => ({ name: x.name })),
+      };
+    });
     return { gymName: await this.settings.get('gym_name'), packages: priced };
   }
 
@@ -159,6 +178,19 @@ export class PublicService {
       );
     }
 
+    // ⚠ ЖИНХЭНЭ хамгаалалт: жагсаалтад «төлөх боломжгүй» гэж тэмдэглэх
+    // нь дэлгэцийн зүйл. `packageId`-г гараар илгээхэд ямар ч саад
+    // болохгүй тул багцыг ЭНД шалгана.
+    const pkg = await this.packages.findOne({
+      where: { id: input.packageId, active: true },
+    });
+    if (!pkg) throw new NotFoundException('Багц олдсонгүй');
+    if (!isPayable(pkg)) {
+      throw new BadRequestException(
+        `«${pkg.name}» нь онлайнаар зарагддаггүй — ресепшн дээр авна`,
+      );
+    }
+
     const invoice = await this.invoices.create(
       { memberId: member.id, packageId: input.packageId },
       null,
@@ -173,4 +205,16 @@ export class PublicService {
   async invoiceStatus(id: string) {
     return this.invoices.statusOf(id);
   }
+}
+
+/**
+ * Онлайнаар төлж болох багц уу.
+ *
+ * ⚠ `seats > 1` нь `online` тугаас ҮЛ ХАМААРАН хаагдана: хосын багцад
+ * хоёр гишүүнийг зэрэг сонгох шаардлагатай бөгөөд public урсгалд тэр
+ * дэлгэц байхгүй. Хүн 1,100,000₮ төлчихөөд нөгөө хүнээ заах газаргүй
+ * үлдэх нь хамгийн муу төгсгөл.
+ */
+function isPayable(pkg: Package): boolean {
+  return pkg.online && pkg.seats === 1;
 }

@@ -57,8 +57,37 @@ export class Promotion {
   @Column({ type: 'text', array: true, default: () => "'{online,reception}'" })
   channels: PromotionChannel[];
 
-  /** ⚠ DB дээр НЭГ Л мөр `true` байж чадна (partial unique index). */
-  @Index('uq_promotion_active', { unique: true, where: '"active"' })
+  /**
+   * Давхарлахыг зогсоох уу.
+   *
+   * Онцгой урамшуулал тохирвол бусад нь тооцогдохгүй — зөвхөн тэр
+   * үйлчилнэ. Хэд хэдэн онцгой урамшуулал зэрэг тохирвол `sortOrder`
+   * их нь (тэнцвэл эрт үүссэн нь) ялна.
+   *
+   * ⚠ `fixed_price` нь ҮРГЭЛЖ онцгой — DB дээр `CK` барина. «Үнэ нь
+   * 500,000₮» гэж зарлаад дээрээс нь дахин хямдруулах нь өөрийгөө
+   * няцаана.
+   */
+  @Column({ type: 'boolean', default: false })
+  exclusive: boolean;
+
+  /**
+   * Давхарлах дараалал — ИХ нь түрүүлж хэрэглэгдэнэ.
+   *
+   * Нийт хөнгөлөлт хязгаарт хүрэхэд үлдсэн урамшуулал таслагдах тул
+   * дараалал нь «аль нь бүтнээрээ орох вэ» гэдгийг шийднэ.
+   */
+  @Column({ name: 'sort_order', type: 'int', default: 0 })
+  sortOrder: number;
+
+  /**
+   * Идэвхтэй эсэх.
+   *
+   * ⚠ Олон урамшуулал зэрэг идэвхтэй байж БОЛНО (1788130000000). Энэ нь
+   * «үйлчилж байна» гэсэн үг БИШ: хугацааны цонх, суваг, багц гурвуулаа
+   * таарсан үед л `quote()` хэрэглэнэ.
+   */
+  @Index('ix_promotion_active', { where: '"active"' })
   @Column({ type: 'boolean', default: false })
   active: boolean;
 
