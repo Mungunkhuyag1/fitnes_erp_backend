@@ -121,29 +121,53 @@ function fromMultipart(raw: Buffer, contentType: string): RawAcsEvent[] {
   const boundary = (b?.[1] ?? b?.[2])?.trim();
   if (!boundary) return [];
 
+  /*
+   * ⚠ Кодтой эвент олдтол ХАЙЛТАА ЗОГСООХГҮЙ.
+   *
+   * Терминал эхний хэсэгт heartbeat, тайлбар мэдээлэл тавьж, жинхэнэ
+   * эвентээ хоёр дахьд нь илгээж болно. Урьд нь эхний задарсан хэсэгт
+   * шууд буцаадаг байсан тул тэр тохиолдолд ирц чимээгүй алдагдана.
+   */
+  let fallback: RawAcsEvent[] = [];
+
   for (const part of raw.toString('binary').split(`--${boundary}`)) {
-    const sep = part.indexOf('\r\n\r\n');
-    if (sep === -1) continue;
-    const headers = part.slice(0, sep).toLowerCase();
+    /*
+     * ⚠ CRLF ба LF ХОЁУЛАА. RFC нь `\r\n\r\n` гэж заадаг ч Hikvision-ий
+     * зарим firmware зөвхөн `\n\n` илгээдэг. Зөвхөн `\r\n\r\n` хайвал
+     * хэсэг бүр алгасагдаж «задалсан=0» болно — бие нь бүрэн байсан ч.
+     */
+    const m = /\r?\n\r?\n/.exec(part);
+    if (!m) continue;
+
+    const headers = part.slice(0, m.index).toLowerCase();
     // Зургийн хэсгийг алгасна — хоёртын өгөгдлийг задлах гэж оролдохгүй.
     if (headers.includes('image/')) continue;
 
-    const text = Buffer.from(part.slice(sep + 4), 'binary')
+    const text = Buffer.from(part.slice(m.index + m[0].length), 'binary')
       .toString('utf8')
-      .replace(/\r\n--$/, '')
+      .replace(/\r?\n--\s*$/, '')
       .trim();
-    if (!text) continue;
 
+    /*
+     * Эхлэлийг ХАЙНА, `startsWith`-ээр шалгахгүй: зарим firmware биеийн
+     * өмнө хоосон мөр, тэмдэгт үлдээдэг.
+     */
+    const start = text.search(/[{[<]/);
+    if (start === -1) continue;
+    const payload = text.slice(start);
+
+    let evs: RawAcsEvent[];
     try {
-      if (text.startsWith('{') || text.startsWith('[')) {
-        return fromJson(JSON.parse(text));
-      }
-      if (text.startsWith('<')) return fromXml(text);
+      evs =
+        payload[0] === '<' ? fromXml(payload) : fromJson(JSON.parse(payload));
     } catch {
-      // Дараагийн хэсгийг үзнэ — эхнийх нь тайлбар мөр байж болно.
+      continue; // Дараагийн хэсгийг үзнэ.
     }
+
+    if (evs.some((e) => e.minor !== undefined)) return evs;
+    if (!fallback.length) fallback = evs;
   }
-  return [];
+  return fallback;
 }
 
 /**
@@ -164,8 +188,20 @@ export function parseWebhookPayload(
 
   if (Buffer.isBuffer(body)) {
     if (body.length === 0) return { format: 'empty', events: [] };
+    /*
+     * ⚠ Хилийн нэрийг ЖИЖИГ ҮСЭГ БОЛГООГҮЙ гарчгаас салгана.
+     *
+     * Хилийн нэр нь ТОМ ЖИЖИГ ҮСЭГ ЯЛГАНА. Hikvision `MIME_boundary`
+     * гэж илгээдэг бол жижигрүүлсэн гарчгаас `mime_boundary` гарч ирээд
+     * биед байгаа `--MIME_boundary`-тэй хэзээ ч таарахгүй. Тэгвэл бүх
+     * бие НЭГ хэсэг болж, JSON нь араасаа хог дагуулан задрахаа болино
+     * — «формат=multipart, задалсан=0» гэсэн чимээгүй бүтэлгүйтэл.
+     */
     if (ct.includes('multipart/'))
-      return { format: 'multipart', events: real(fromMultipart(body, ct)) };
+      return {
+        format: 'multipart',
+        events: real(fromMultipart(body, contentType)),
+      };
 
     const text = body.toString('utf8').trim();
     if (text.startsWith('<'))
