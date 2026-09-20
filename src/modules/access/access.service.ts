@@ -6,6 +6,7 @@ import { In, Repository, DataSource } from 'typeorm';
 import { pageResult, type PageResult } from '../../common/dto/paginated';
 import { MemberStatus } from '../../common/enums/member-status.enum';
 import { startOfLocalDay } from '../../common/utils/date.util';
+import { splitTerminalName } from '../../common/utils/terminal-name.util';
 import { Member } from '../member/member.entity';
 import { terminalPath } from '../device/isapi/terminal-path';
 import { AccessEvent, AccessReason } from './access-event.entity';
@@ -269,6 +270,13 @@ export class AccessService {
       picturePath: e.picturePath,
       memberNo: e.employeeNo,
       deviceId: e.deviceId,
+      /*
+       * Терминал дээр бичигдсэн нэр. Заал нэрийг регистртэй нь
+       * нийлүүлж хадгалдаг («Usukhbayar km78042019») тул салгаж өгнө —
+       * эс бөгөөс регистр нь нэрний хэсэг мэт харагдана.
+       */
+      terminalName: splitTerminalName(e.raw?.name)?.name ?? null,
+      terminalRegister: splitTerminalName(e.raw?.name)?.register ?? null,
       member: member
         ? {
             id: member.id,
@@ -297,6 +305,17 @@ export class AccessService {
       id: r.id,
       memberId: r.memberId,
       memberName: r.memberId ? (map.get(r.memberId)?.name ?? null) : null,
+      /*
+       * ТЕРМИНАЛ дээрх нэр — WinFit-д гишүүн олдоогүй үед хэн болохыг
+       * хэлэх ЦОРЫН ГАНЦ эх сурвалж.
+       *
+       * Терминалаас импортолсон ирцийн ихэнх нь `member_id` нь NULL
+       * (гишүүд ороогүй байхад бүртгэгдсэн). Гэвч түлхэлтийн биед
+       * `name` талбар ирдэг тул жагсаалт дээр «Бүртгэлгүй (№246)»
+       * гэхийн оронд жинхэнэ нэрийг харуулж чадна — туннель, импорт
+       * аль нь ч шаардахгүй.
+       */
+      terminalName: splitTerminalName(r.raw?.name)?.name ?? null,
       memberNo: r.employeeNo,
       eventAt: r.eventAt,
       granted: r.granted,
