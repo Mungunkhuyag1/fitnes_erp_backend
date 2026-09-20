@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
@@ -127,6 +127,7 @@ export class AccessService {
   async list(q: ListAccessEventsDto): Promise<PageResult<unknown>> {
     const qb = this.repo.createQueryBuilder('e');
     if (q.memberId) qb.andWhere('e.member_id = :mid', { mid: q.memberId });
+    if (q.memberNo) qb.andWhere('e.employee_no = :no', { no: q.memberNo });
     if (q.deviceId) qb.andWhere('e.device_id = :did', { did: q.deviceId });
     if (q.granted !== undefined) {
       qb.andWhere('e.granted = :g', { g: q.granted });
@@ -226,6 +227,61 @@ export class AccessService {
       .andWhere('e.event_at >= :from', { from })
       .getRawOne<{ n: string }>();
     return Number(row?.n ?? 0);
+  }
+
+  /**
+   * Нэг уншуулалтын бүх мэдээлэл.
+   *
+   * ★ ЯАГААД ЖАГСААЛТААС ТУСДАА ВЭ
+   *
+   * `raw` нь эвент бүрд хэдэн зуун байт JSON. Жагсаалтад 25 мөр татахад
+   * түүнийг оруулбал хариу хэдэн арван КБ болно — 5,000 бичлэгтэй
+   * жагсаалтыг гүйлгэхэд мэдэгдэхүйц удаашрана. Дэлгэрэнгүйг зөвхөн
+   * ДАРСАН үед нэг мөрөөр татна.
+   */
+  async detail(id: string) {
+    const e = await this.repo.findOne({ where: { id } });
+    if (!e) throw new NotFoundException('Ирц олдсонгүй');
+
+    /*
+     * Гишүүнийг ХОЁР аргаар хайна.
+     *
+     * `member_id` нь эвент бүртгэгдэх АГШИНД холбогдсон эсэхийг хэлнэ.
+     * Терминалаас импортолсон хуучин ирц нь гишүүд WinFit-д орохоос
+     * өмнөх байж болох ба тэр үед NULL үлдсэн. Дугаараар нь дахин
+     * хайвал одоо байгаа гишүүнтэй тааруулж чадна — жагсаалт дээр
+     * «Бүртгэлгүй» гэж харагдсан ч дэлгэрэнгүй дээр хэн болох нь
+     * тодорно.
+     */
+    const member = e.memberId
+      ? await this.members.findOne({ where: { id: e.memberId } })
+      : e.employeeNo
+        ? await this.members.findOne({ where: { memberNo: e.employeeNo } })
+        : null;
+
+    return {
+      id: e.id,
+      eventAt: e.eventAt,
+      granted: e.granted,
+      reason: e.reason,
+      reasonLabel: REASON_LABEL[e.reason] ?? e.reason,
+      verifyMode: e.verifyMode,
+      picturePath: e.picturePath,
+      memberNo: e.employeeNo,
+      deviceId: e.deviceId,
+      member: member
+        ? {
+            id: member.id,
+            name: member.name,
+            memberNo: member.memberNo,
+            phone: member.phone,
+            status: member.status,
+          }
+        : null,
+      /** Эвент бүртгэгдэх үед холбогдсон эсэх — дараа нь тааруулсан эсэхийг ялгана. */
+      linkedAtIngest: e.memberId !== null,
+      raw: e.raw,
+    };
   }
 
   private async decorate(rows: AccessEvent[]) {

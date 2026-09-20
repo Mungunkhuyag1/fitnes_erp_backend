@@ -27,6 +27,23 @@ export class ListAccessEventsDto extends PageQueryDto {
   @IsUUID()
   memberId?: string;
 
+  /**
+   * Терминал дээрх хэрэглэгчийн дугаараар шүүх.
+   *
+   * ★ ЯАГААД `memberId`-ЭЭС ТУСДАА ВЭ
+   *
+   * Терминалаас татсан ирц нь WinFit-д ГИШҮҮНГҮЙ байж болно — импорт
+   * хийхээс өмнөх уншуулалт, эсвэл зөвхөн терминал дээр үүсгэсэн хүн.
+   * Тэр үед `member_id` нь NULL боловч `employee_no` үлддэг. Гишүүний
+   * ID-гаар шүүх нь эдгээрийг ОГТ олохгүй тул дугаараар шүүх хэрэгтэй.
+   */
+  @ApiPropertyOptional({ example: 1001, description: 'Терминал дээрх дугаар' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  memberNo?: number;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()

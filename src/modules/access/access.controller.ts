@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
 } from '@nestjs/common';
@@ -68,6 +69,17 @@ export class AccessController {
   @ApiOperation({ summary: 'Сүүлийн 50 нэвтрэлт — dashboard-ийн урсгал' })
   recent() {
     return this.access.recent();
+  }
+
+  /**
+   * ⚠ `:id` нь ХАМГИЙН СҮҮЛД. Nest маршрутыг зарласан дарааллаар нь
+   * тааруулдаг тул үүнийг дээр тавибал `stats`, `recent` зэрэг нь
+   * `:id`-д залгигдаж, «Ирц олдсонгүй» гэж буцаана.
+   */
+  @Get(':id')
+  @ApiOperation({ summary: 'Нэг уншуулалтын дэлгэрэнгүй' })
+  detail(@Param('id') id: string) {
+    return this.access.detail(id);
   }
 
   /**
