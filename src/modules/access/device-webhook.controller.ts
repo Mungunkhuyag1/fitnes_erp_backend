@@ -68,11 +68,21 @@ export class DeviceWebhookController {
 
     const { format, events } = parseWebhookPayload(contentType, body);
     let ingested = 0;
+    /** Ижил секундэд давхар ирсэн — ХЭВИЙН, доорх тайлбарыг үз. */
+    let duplicate = 0;
+    /** Ирцэд хамааралгүй төхөөрөмжийн эвент — мөн хэвийн. */
+    let skipped = 0;
 
     for (const e of events) {
-      if (e.minor !== undefined && !this.knownMinor(e.minor)) continue;
+      if (e.minor !== undefined && !this.knownMinor(e.minor)) {
+        skipped++;
+        continue;
+      }
       const m = mapAcsEvent(e);
-      if (!m || m.employeeNo === null) continue;
+      if (!m || m.employeeNo === null) {
+        skipped++;
+        continue;
+      }
 
       // ⚠ `serialNo`-г ЗОРИУДААР дамжуулахгүй.
       //
@@ -89,9 +99,17 @@ export class DeviceWebhookController {
         pictureUrl: m.pictureUrl,
       });
       if (ok) ingested++;
+      else duplicate++;
     }
 
-    if (ingested) this.log.log(`Терминалаас ${ingested} ирц хүлээн авав`);
+    if (ingested) {
+      this.log.log(`Терминалаас ${ingested} ирц хүлээн авав`);
+    } else if (duplicate) {
+      // Хос эвентийн хоёр дахь нь — хүлээгдэж буй зүйл, LOG биш DEBUG.
+      this.log.debug(`Давхардсан түлхэлт алгаслаа (${duplicate})`);
+    } else if (skipped) {
+      this.log.debug(`Ирцэд хамааралгүй эвент (${skipped})`);
+    }
     /*
      * ⚠ ЧИМЭЭГҮЙ БҮТЭЛГҮЙТЭЛ — энэ төслийн хамгийн хортой алдаа.
      *
@@ -111,7 +129,22 @@ export class DeviceWebhookController {
         : JSON.stringify(body ?? null),
     });
 
-    if (ingested === 0) {
+    /*
+     * ⚠ ЗӨВХӨН ҮНЭХЭЭР ОЙЛГООГҮЙ үед сануулна.
+     *
+     * Урьд нь `ingested === 0` бүрд сануулдаг байсан нь ХЭВИЙН
+     * ажиллагааг алдаа мэт харуулж байв:
+     *
+     *   · Терминал нэг ирэлт дээр minor 75 БА 104-ийг ИЖИЛ секундэд
+     *     илгээдэг. Хоёр дахийг нь `dedupeKey` зориудаар хаяна — нэг
+     *     хүн нэг ирц болгохын тулд. Энэ бол ЗӨВ үр дүн.
+     *   · Хаалганы мэдрэгч, эвдрэлийн дохио зэрэг төхөөрөмжийн эвент нь
+     *     нийтийн 77% (docs/03). Тэдгээр нь ирц БИШ.
+     *
+     * Ийм мөрүүд логийг улаанаар дүүргэвэл ЖИНХЭНЭ асуудал живнэ.
+     * Одоо зөвхөн биеийг огт задалж чадаагүй үед л сануулна.
+     */
+    if (events.length === 0) {
       /*
        * ⚠ ТҮҮХИЙ БИЕИЙГ ЛОГД ШУУД БИЧНЭ.
        *
@@ -121,21 +154,26 @@ export class DeviceWebhookController {
        * хардаг байв — түүнийг нь ч Railway дахин ассан үед санах ойгоос
        * арилгана.
        *
-       * Логд байвал юу ирснийг ШУУД харна. Хоёртын хэсэгт хүрэхгүйн
-       * тулд эхний 400 тэмдэгт л (текст хэсэг үргэлж эхэнд байдаг),
-       * хэвлэгдэхгүй тэмдэгтийг цэгээр сольж лог эвдэхээс сэргийлнэ.
+       * Логд байвал юу ирснийг ШУУД харна.
+       *
+       * ⚠ ЗААВАЛ НЭГ МӨР БОЛГОНО. Түүхий бие нь олон мөрт бөгөөд хэд
+       * хэдэн түлхэлт зэрэг ирдэг тул мөр таслалттайгаар бичвэл логууд
+       * хооронд нь орооцолдож, аль мөр алинд нь хамаарахыг ялгах
+       * боломжгүй болно. Мөр таслалтыг `⏎` болгож, хэвлэгдэхгүй
+       * тэмдэгтийг цэгээр солино.
        */
       const raw = (
         Buffer.isBuffer(body) ? body.toString('utf8') : JSON.stringify(body)
       )
-        .slice(0, 400)
+        .slice(0, 300)
+        .replace(/\r?\n/g, '⏎')
         // eslint-disable-next-line no-control-regex
-        .replace(/[\x00-\x08\x0e-\x1f\x7f]/g, '.');
+        .replace(/[\x00-\x08\x0e-\x1f\x7f]/g, '.')
+        .replace(/\s{2,}/g, ' ');
 
       this.log.warn(
-        `Түлхэлт ирсэн ч ирц бүртгэгдсэнгүй — формат=${format}, ` +
-          `задалсан=${events.length}, content-type=${contentType || '—'}\n` +
-          `Түүхий бие (эхний 400): ${raw}`,
+        `Түлхэлтийн биеийг задалж чадсангүй — формат=${format}, ` +
+          `content-type=${contentType || '—'} · бие: ${raw}`,
       );
     }
 
