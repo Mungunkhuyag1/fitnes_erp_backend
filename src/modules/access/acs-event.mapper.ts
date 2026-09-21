@@ -45,14 +45,21 @@ const DEVICE_ONLY = new Map<number, string>([
   [1030, 'төхөөрөмжийн эвент'],
 ]);
 
-/** Эвентийн код юуг илтгэхийг ангилна. */
+/**
+ * Эвентийн код юуг илтгэхийг ангилна.
+ *
+ * ⚠ `granted` ба `denied`-ыг ЯЛГАНА. Хоёулаа «нэвтрэлт» боловч хүний
+ * дугаар дагалдахгүй үед утга нь ТЭС ӨӨР:
+ *   · denied (76) — хэн ч танигдаагүй тул дугаар БАЙХ ЁСГҮЙ. Хэвийн.
+ *   · granted (75) — хүн танигдсан ч дугаар нь алга. Ирц АЛДАГДАЖ байна.
+ * Хоёуланг нь ижил бичвэрээр хэвлэвэл ноцтойг нь хэвийнээс ялгахгүй.
+ */
 export function classifyMinor(
   minor?: number,
-): { kind: 'access' | 'device' | 'unknown'; label: string } {
+): { kind: 'granted' | 'denied' | 'device' | 'unknown'; label: string } {
   if (minor === undefined) return { kind: 'unknown', label: 'код байхгүй' };
-  if (GRANTED.has(minor) || DENIED.has(minor)) {
-    return { kind: 'access', label: 'нэвтрэлт' };
-  }
+  if (GRANTED.has(minor)) return { kind: 'granted', label: 'нэвтрэлт' };
+  if (DENIED.has(minor)) return { kind: 'denied', label: 'царай танигдсангүй' };
   const known = DEVICE_ONLY.get(minor);
   if (known) return { kind: 'device', label: known };
   return { kind: 'unknown', label: 'танихгүй код' };

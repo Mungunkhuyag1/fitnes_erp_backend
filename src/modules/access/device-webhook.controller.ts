@@ -82,7 +82,7 @@ export class DeviceWebhookController {
     for (const e of events) {
       const code = `minor=${e.minor ?? '—'}/major=${e.major ?? '—'}`;
       const cls = classifyMinor(e.minor);
-      if (cls.kind !== 'access') {
+      if (cls.kind === 'device' || cls.kind === 'unknown') {
         // Зөвхөн ҮНЭХЭЭР танихгүй кодод сэрэмжлүүлнэ — мэдэгдэж буй
         // хаалганы мэдрэгч нь 73% тул тэдэнд сэрэмжлүүлбэл лог дүүрнэ.
         if (cls.kind === 'unknown' && e.minor !== undefined) {
@@ -98,22 +98,26 @@ export class DeviceWebhookController {
       }
       if (m.employeeNo === null) {
         /*
-         * Ирцийн код мөн боловч ХҮНИЙ ДУГААР дагалдаагүй — ихэвчлэн
-         * minor 76 (царай танигдсангүй). Хэн болох нь тодорхойгүй тул
-         * мөр үүсгэж чадахгүй. Терминалын өгсөн нэрийг хэвлэвэл
-         * ядаж ямар тохиолдол болохыг таамаглахад тустай.
+         * ⚠ ХОЁР ТЭС ӨӨР ТОХИОЛДОЛ — заавал ялгана.
+         *
+         * `denied` (76): хэн ч танигдаагүй тул дугаар БАЙХ ЁСГҮЙ. Энэ
+         * бол хэвийн — таних оролдлого амжилтгүй болсон.
+         *
+         * `granted` (75/104/8): хүн ТАНИГДСАН, гэтэл дугаар нь тоо
+         * биш. Терминал `employeeNoString`-д текст зөвшөөрдөг бол
+         * WinFit-ийн `member_no` нь тоо. Энэ тохиолдолд ЖИНХЭНЭ ирц
+         * алдагдаж байна — түүхий утгыг харуулж засах боломж өгнө.
          */
+        if (cls.kind === 'denied') {
+          skipped.push(`${code} царай танигдсангүй`);
+          continue;
+        }
         const who = typeof e.name === 'string' && e.name ? ` «${e.name}»` : '';
-        /*
-         * ⚠ ТҮҮХИЙ утгыг бичнэ. Терминал `employeeNoString`-д ТЕКСТ
-         * зөвшөөрдөг («adiya», регистр г.м.) бол WinFit-ийн `member_no`
-         * нь ТОО. Хөрвөхгүй бол хэн болох нь тодорхойгүй болж мөр
-         * үүсэхгүй. Юу ирснийг харуулбал заалан дээр терминалын
-         * бүртгэлийг засах эсэхийг шийдэж болно.
-         */
         const rawNo = e.employeeNoString ?? e.employeeNo;
         const got = rawNo === undefined || rawNo === '' ? 'хоосон' : `"${rawNo}"`;
-        skipped.push(`${code} хүний дугааргүй (employeeNo=${got})${who}`);
+        skipped.push(
+          `${code} ⚠ ТАНИГДСАН ч дугаар нь тоо биш (employeeNo=${got})${who} — ирц алдагдаж байна`,
+        );
         continue;
       }
 
