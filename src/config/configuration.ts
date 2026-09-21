@@ -159,6 +159,14 @@ export const configuration = () => ({
     pollMs: toInt(process.env.DEVICE_EVENT_POLL_MS, 300_000),
     /** Давхцах цонх, минут — түлхэлт алдагдсаныг нөхнө. */
     pollWindowMin: toInt(process.env.DEVICE_EVENT_WINDOW_MIN, 15),
+    /**
+     * Туннелийн оношлогоо (`on` | хоосон).
+     *
+     * ⚠ ЗӨВХӨН оношлох агшинд асаана. Асаалттай үед `/ISAPI/...` замд
+     * ирсэн хүсэлтийн толгойг логд бичээд 401 буцаана — жинхэнэ
+     * ажиллагаанд хэрэггүй.
+     */
+    tunnelEcho: process.env.TUNNEL_ECHO ?? '',
   },
 
   hikvision: {

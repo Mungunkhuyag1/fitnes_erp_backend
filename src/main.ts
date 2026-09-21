@@ -5,6 +5,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { tunnelEcho } from './common/middleware/tunnel-echo.middleware';
 
 /**
  * Production-д санамсаргүй stub горимоор үлдэхээс сэргийлнэ.
@@ -121,6 +122,15 @@ async function bootstrap() {
     '/api/webhooks/device',
     raw({ type: () => true, limit: '2mb' }),
   );
+
+  /*
+   * Туннелийн оношлогоо — `TUNNEL_ECHO=on` үед л ажиллана.
+   *
+   * ⚠ Глобал угтвараас ӨМНӨ бүртгэнэ: cloudflared нь терминалын
+   * замыг (`/ISAPI/...`) хэвээр дамжуулдаг тул `/api`-гийн дор
+   * унахгүй. Middleware нь тэр замыг барина.
+   */
+  app.use(tunnelEcho(config.get<string>('device.tunnelEcho') === 'on'));
 
   app.useGlobalPipes(
     new ValidationPipe({

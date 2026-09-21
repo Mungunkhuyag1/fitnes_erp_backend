@@ -120,6 +120,8 @@ export const envValidationSchema = Joi.object({
   DEVICE_WEBHOOK_SECRET: Joi.string().allow('').default(''),
   DEVICE_EVENT_POLL_MS: Joi.number().min(30_000).max(3_600_000).default(300_000),
   DEVICE_EVENT_WINDOW_MIN: Joi.number().min(1).max(1440).default(15),
+  // Оношлогооны түр зуурын унтраалга — хоосон нь УНТРААЛТТАЙ.
+  TUNNEL_ECHO: Joi.string().valid('on', '').default(''),
   HIK_PORT: Joi.number().default(80),
   HIK_USER: Joi.string().allow('').default('admin'),
   // Нууц үгийг дэлгэцээс тохируулж, DB-д НУУЦЛААД хадгална. `.env` нь
