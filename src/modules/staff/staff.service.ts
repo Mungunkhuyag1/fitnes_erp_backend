@@ -36,6 +36,22 @@ export class StaffService {
     return pageResult(rows.map((r) => this.view(r)), total, q);
   }
 
+  /**
+   * Сонгох хяналтад зориулсан ТОВЧ жагсаалт.
+   *
+   * ⚠ Идэвхгүй ажилтныг ОРУУЛНА: тэдний нэр хуучин бичлэг дээр
+   *   хэвээр байдаг — хасвал «тодорхойгүй ажилтан» гэж харагдана.
+   *   Дэлгэц өөрөө шийднэ.
+   */
+  async brief(): Promise<
+    { id: string; name: string; role: string; active: boolean }[]
+  > {
+    return this.repo.find({
+      select: { id: true, name: true, role: true, active: true },
+      order: { name: 'ASC' },
+    });
+  }
+
   async create(dto: CreateStaffDto) {
     const email = dto.email.toLowerCase().trim();
     if (await this.repo.findOne({ where: { email } })) {

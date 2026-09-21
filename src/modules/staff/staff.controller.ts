@@ -27,6 +27,23 @@ import { StaffService } from './staff.service';
 export class StaffController {
   constructor(private readonly staff: StaffService) {}
 
+  /**
+   * Ажилтнуудын ТОВЧ жагсаалт — сонгох хяналтад.
+   *
+   * ★ ЯАГААД `GET /staff`-ЫГ АШИГЛААГҮЙ ВЭ
+   *
+   * Тэр нь хэрэглэгчийн БҮРЭН бүртгэлийг буцаадаг тул контроллерын
+   * түвшинд ADMIN гэж хаасан. Гэвч «хэн хийх вэ» гэж сонгоход
+   * зөвхөн НЭР хэрэгтэй бөгөөд төлөвлөгөөг MANAGER ч хийнэ.
+   * Ийм тул имэйл, сүүлийн нэвтрэлт зэрэггүй тусдаа зам.
+   */
+  @Roles(Role.MANAGER)
+  @Get('brief')
+  @ApiOperation({ summary: 'Ажилтнууд — зөвхөн ID/нэр/үүрэг' })
+  brief() {
+    return this.staff.brief();
+  }
+
   @Get()
   @ApiOperation({ summary: 'Ажилтны жагсаалт (хуудаслалттай)' })
   list(@Query() q: PageQueryDto) {

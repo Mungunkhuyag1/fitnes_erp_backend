@@ -27,6 +27,7 @@ import { OutboxModule } from './modules/outbox/outbox.module';
 import { PackageModule } from './modules/package/package.module';
 import { PublicModule } from './modules/public/public.module';
 import { ReportModule } from './modules/report/report.module';
+import { TaskModule } from './modules/task/task.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { StaffModule } from './modules/staff/staff.module';
 
@@ -79,6 +80,7 @@ import { StaffModule } from './modules/staff/staff.module';
     LoyaltyModule,
     PublicModule,
     ReportModule,
+    TaskModule,
     DeviceModule,
     HealthModule,
   ],

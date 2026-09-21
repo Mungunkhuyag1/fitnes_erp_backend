@@ -34,7 +34,8 @@
     "seed:packages": "ts-node -r tsconfig-paths/register src/database/seeds/seed-packages.ts",
     "seed:admin:prod": "node dist/src/database/seeds/seed-admin.js",
     "seed:packages:prod": "node dist/src/database/seeds/seed-packages.js",
-    "import:device:prod": "node dist/src/database/seeds/import-device.js"
+    "import:device:prod": "node dist/src/database/seeds/import-device.js",
+    "check:task-expand": "ts-node -r tsconfig-paths/register scripts/check-task-expand.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
