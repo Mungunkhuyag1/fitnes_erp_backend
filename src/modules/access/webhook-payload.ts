@@ -88,7 +88,20 @@ function fromJson(body: unknown): RawAcsEvent[] {
   const inner =
     (o.AccessControllerEvent as Record<string, unknown> | undefined) ??
     (o.AcsEvent as Record<string, unknown> | undefined);
-  return [normalize(inner ?? o, outerTime)];
+  const ev = normalize(inner ?? o, outerTime);
+  /*
+   * ★ ТЕРМИНАЛ ӨӨРИЙН IP-ГЭЭ ХЭЛДЭГ — гаднах бүрхүүлд.
+   *
+   * Урьд нь зөвхөн дотоод `AccessControllerEvent`-ийг авдаг байсан тул
+   * энэ утга хаягддаг байв. Гэтэл DHCP хаяг солиход туннелийн чиглэл
+   * эзэнгүй болж `502` өгдөг бөгөөд `docs/12` §7.1-д «үүнийг
+   * анхааруулдаг систем БАЙХГҮЙ» гэж тэмдэглэсэн байдаг.
+   *
+   * Түлхэлт нь терминалаас ГАДАГШ явдаг тул туннель унасан ч ирсээр
+   * байна. Иймд энэ нь хаяг солигдсоныг мэдэх ЦОРЫН ГАНЦ алсын зам.
+   */
+  if (typeof o.ipAddress === 'string') ev.deviceIp = o.ipAddress;
+  return [ev];
 }
 
 function fromXml(xml: string): RawAcsEvent[] {

@@ -42,6 +42,8 @@ export class DeviceWebhookController {
   private readonly log = new Logger(DeviceWebhookController.name);
   /** Танихгүй minor кодыг НЭГ л удаа бичнэ — лог дүүргэхгүй. */
   private readonly seenUnknown = new Set<number>();
+  /** Терминалын сүүлд мэдэгдсэн IP — СОЛИГДСОН үед л сануулна. */
+  private lastDeviceIp: string | null = null;
 
   constructor(
     private readonly access: AccessService,
@@ -137,6 +139,33 @@ export class DeviceWebhookController {
       });
       if (ok) ingested++;
       else duplicate++;
+    }
+
+    /*
+     * ★ ТЕРМИНАЛЫН ӨӨРИЙН IP-Г ХЭВЛЭНЭ.
+     *
+     * DHCP хаяг солиход туннелийн чиглэл эзэнгүй болж `502` өгдөг ч
+     * түлхэлт нь ГАДАГШ явдаг тул ирсээр байна. Өөрөөр хэлбэл ирц
+     * ажиллаж байхад л хаягийг мэдэж болно — заалан дээр очих
+     * шаардлагагүй. `docs/12` §7.1-д «үүнийг анхааруулдаг систем
+     * БАЙХГҮЙ» гэсэн цоорхойг нөхнө.
+     *
+     * Хаяг СОЛИГДСОН үед л бичнэ — эс бөгөөс мөр бүрд давтагдана.
+     */
+    // ⚠ `ip` нь ХҮСЭЛТИЙН эх хаяг (`@Ip()`) — өөр зүйл. Терминалын
+    //   өөрийн хаягийг ялгаж нэрлэнэ.
+    const deviceIp = events.find(
+      (e) => typeof e.deviceIp === 'string',
+    )?.deviceIp;
+    if (typeof deviceIp === 'string' && deviceIp !== this.lastDeviceIp) {
+      const before = this.lastDeviceIp;
+      this.lastDeviceIp = deviceIp;
+      this.log.warn(
+        before
+          ? `⚠ Терминалын IP СОЛИГДЛОО: ${before} → ${deviceIp}. ` +
+              'Cloudflare → winfit-hik → route → Service URL-ыг шинэчилнэ үү.'
+          : `Терминалын IP: ${deviceIp}`,
+      );
     }
 
     if (ingested) {
