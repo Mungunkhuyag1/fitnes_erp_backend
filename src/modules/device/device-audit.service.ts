@@ -246,6 +246,8 @@ export class DeviceAuditService {
     skipped: number;
     relinked: number;
     names: string[];
+    /** Импортлогдоогүй мөрүүд — ажилтан терминал дээр нь засна. */
+    failed: string[];
   }> {
     const users = await this.device.listUsers();
     const existing = new Set(
@@ -255,6 +257,7 @@ export class DeviceAuditService {
     );
 
     const names: string[] = [];
+    const failed: string[] = [];
     let created = 0;
     let skipped = 0;
 
@@ -263,9 +266,26 @@ export class DeviceAuditService {
         skipped++;
         continue;
       }
-      const r = await this.applyDeviceUser(u);
-      created++;
-      if (names.length < 20) names.push(`№${u.employeeNo} ${r.name}`);
+      /*
+       * ★ НЭГ МУУ МӨР БҮХ ИМПОРТЫГ УНАГААХ ЁСГҮЙ.
+       *
+       * Урьд нь хамгаалалтгүй байсан: терминал дээр текст дугаартай
+       * ганц мөр байхад 300+ гишүүн орсны дараа `pullAll` шидэж унаж,
+       * ДООРХ өнчин ирцийн холболт ХЭЗЭЭ Ч ажиллахгүй байв. Дахин
+       * ажиллуулахад ч яг тэр мөр дээрээ дахин унана.
+       *
+       * Одоо алдааг ЦУГЛУУЛААД үргэлжилнэ — ажилтан тайлангаас нь
+       * хэнийг засахаа хардаг.
+       */
+      try {
+        const r = await this.applyDeviceUser(u);
+        created++;
+        if (names.length < 20) names.push(`№${u.employeeNo} ${r.name}`);
+      } catch (e) {
+        const who = `«${u.rawNo ?? u.employeeNo}» ${u.name || '—'}`;
+        failed.push(`${who}: ${(e as Error).message}`);
+        this.log.error(`Терминалаас авч чадсангүй: ${who} — ${(e as Error).message}`);
+      }
     }
 
     // ★ ӨНЧИН ИРЦИЙГ ЭЗЭНД НЬ ХОЛБОХ
@@ -289,7 +309,8 @@ export class DeviceAuditService {
     this.log.warn(
       `Терминалаас бөөнөөр авав: ${created} шинэ, ${skipped} аль хэдийн байсан ` +
         `(терминал дээр нийт ${users.length}), ` +
-        `${relinkedCount} өнчин ирц эзэндээ холбогдов`,
+        `${relinkedCount} өнчин ирц эзэндээ холбогдов` +
+        (failed.length ? `, ${failed.length} мөр АЛДААТАЙ` : ''),
     );
     return {
       deviceTotal: users.length,
@@ -297,6 +318,7 @@ export class DeviceAuditService {
       skipped,
       relinked: relinkedCount,
       names,
+      failed,
     };
   }
 
@@ -307,6 +329,22 @@ export class DeviceAuditService {
     name: string;
   }> {
     const employeeNo = u.employeeNo;
+
+    /*
+     * ★ ДУГААР ЗААВАЛ ТОО.
+     *
+     * `member_no` нь Postgres дээр `int`. Терминалын `employeeNo` нь
+     * ТЕКСТ тул `admin` гэх мэт утга `NaN` болж, хамгаалалтгүй бол
+     * `invalid input syntax for type integer: "NaN"` (22P02) гэж
+     * ДУНД НЬ унана — өмнөх бүх бичилт үлдэж, импорт тал дундаа
+     * зогсоно. Тиймээс санд хүрэхээс нь ӨМНӨ таслана.
+     */
+    if (!Number.isInteger(employeeNo) || employeeNo <= 0 || employeeNo > 2_147_483_647) {
+      throw new BadRequestException(
+        `Терминал дээрх дугаар тоо биш: «${u.rawNo ?? employeeNo}» (нэр: ${u.name || '—'}). ` +
+          'Терминал дээр нь тоон дугаар болгож засаад дахин оролдоно уу.',
+      );
+    }
 
     // ⚠ Терминалын нэр «Бат ub93052012» хэлбэртэй байж болно —
     // бүртгэлийн дугаарыг тусад нь салгана (импорттой ижил дүрэм).

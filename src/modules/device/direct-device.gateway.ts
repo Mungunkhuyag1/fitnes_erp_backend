@@ -176,7 +176,11 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
       return raw.map((u) => {
         const valid = (u.Valid ?? {}) as Record<string, unknown>;
         return {
+          // ⚠ `NaN` гарч болно — терминал дээр текст дугаар бичигдсэн бол.
+          //   Энд ХАЯХГҮЙ: аль мөр болохыг дуудагч мэдэж, ажилтанд
+          //   хэлэх ёстой. Чимээгүй алгасвал тэр хүн үүрд импортлогдохгүй.
           employeeNo: Number(u.employeeNo),
+          rawNo: String(u.employeeNo ?? ''),
           name: String(u.name ?? ''),
           begin: parseLocal(valid.beginTime),
           end: parseLocal(valid.endTime),

@@ -52,7 +52,16 @@ export interface DeviceInfo {
 
 /** Терминал дээр бодитоор байгаа хэрэглэгчийн мөр — тулгалтад. */
 export interface DeviceUserRow {
+  /**
+   * ⚠ ТОО БАЙХ БАТАЛГААГҮЙ.
+   *
+   * Терминал дээр `employeeNo` нь ТЕКСТ талбар: `admin`, `Adiya` гэх
+   * мэт утга гараар бичигдэж болно. Тэгвэл энэ нь `NaN` болно —
+   * `Number.isInteger()`-ээр шалгаж байж л санд өгнө.
+   */
   employeeNo: number;
+  /** Терминал дээр ЯГ юу бичигдсэн — алдаатай мөрийг нэрлэхэд. */
+  rawNo?: string;
   name: string;
   begin: Date | null;
   end: Date | null;

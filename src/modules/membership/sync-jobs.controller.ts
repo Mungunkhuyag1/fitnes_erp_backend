@@ -239,6 +239,7 @@ export class SyncJobsController {
         deviceTotal: r.deviceTotal,
         created: r.created,
         skipped: r.skipped,
+        failed: r.failed.length,
       },
     });
     return r;
