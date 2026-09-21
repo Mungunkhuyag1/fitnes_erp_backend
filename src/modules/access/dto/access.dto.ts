@@ -37,12 +37,15 @@ export class ListAccessEventsDto extends PageQueryDto {
    * Тэр үед `member_id` нь NULL боловч `employee_no` үлддэг. Гишүүний
    * ID-гаар шүүх нь эдгээрийг ОГТ олохгүй тул дугаараар шүүх хэрэгтэй.
    */
-  @ApiPropertyOptional({ example: 1001, description: 'Терминал дээрх дугаар' })
+  /*
+   * ⚠ ТЕКСТ. Терминал дээр дугаар нь текст байж болно (`Adiya`) тул
+   * тоон шалгалт тавибал тэр хүнийг ОГТ хайж чадахгүй болно.
+   */
+  @ApiPropertyOptional({ example: '1001', description: 'Терминал дээрх дугаар' })
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  memberNo?: number;
+  @IsString()
+  @MaxLength(32)
+  memberNo?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

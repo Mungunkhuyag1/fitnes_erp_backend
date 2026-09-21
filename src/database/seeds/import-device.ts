@@ -102,13 +102,14 @@ async function main(): Promise<void> {
   let staffLike = 0;
   let noPhone = 0;
   const skippedNos: string[] = [];
-  const numberMap = new Map<string, number>(); // терминал № → WinFit №
+  const numberMap = new Map<string, string>(); // терминал № → WinFit №
 
   for (const u of users) {
-    // ⚠ `employeeNo` нь ТЕКСТ — «Adiya» гэсэн ч байсан. WinFit-ийн
-    // `member_no` нь INTEGER тул хөрвөхгүйг алгасч, тайланд гаргана.
-    const no = Number(u.employeeNo);
-    if (!Number.isInteger(no) || no <= 0) {
+    // ⚠ `employeeNo` нь ТЕКСТ — «Adiya» гэсэн ч байж болно. `member_no`
+    // нь ч текст болсон тул (1788150000000) ийм утгыг ХАДГАЛНА. Зөвхөн
+    // хоосон эсвэл баганад багтахгүйг алгасна.
+    const no = String(u.employeeNo ?? '').trim();
+    if (!no || no.length > 32) {
       skipped++;
       skippedNos.push(String(u.employeeNo));
       continue;
@@ -172,8 +173,15 @@ async function main(): Promise<void> {
 
   // `member_no_seq`-ийг хамгийн их дугаараас ЦААШ шилжүүлнэ — эс бөгөөс
   // шинэ гишүүн үүсгэхэд импортлосонтой мөргөлдөнө.
+  /*
+   * ⚠ `member_no` нь ТЕКСТ болсон тул `MAX()`-ыг ШУУД авч болохгүй:
+   *   текстээр `'999' > '1006'` бөгөөд дараалал 1000 руу буцаж,
+   *   дараагийн гишүүн байгаа дугаартай мөргөлдөнө. Тоон утгуудыг л
+   *   шүүж, `::int`-ээр хөрвүүлж жиших ЁСТОЙ.
+   */
   const [{ max }] = await ds.query<{ max: number }[]>(
-    `SELECT COALESCE(MAX(member_no), 1000) AS max FROM members`,
+    `SELECT COALESCE(MAX(member_no::int), 1000) AS max
+       FROM members WHERE member_no ~ '^[0-9]+$'`,
   );
   await ds.query(`ALTER SEQUENCE member_no_seq RESTART WITH ${Number(max) + 1}`);
 
@@ -182,7 +190,7 @@ async function main(): Promise<void> {
   if (process.env.IMPORT_EVENTS !== 'false') {
     const { mapAcsEvent } = await import('../../modules/access/acs-event.mapper');
     const evRepo = ds.getRepository(AccessEvent);
-    const byNo = new Map<number, string>();
+    const byNo = new Map<string, string>();
     for (const m of await memberRepo.find({ select: { id: true, memberNo: true } })) {
       byNo.set(m.memberNo, m.id);
     }

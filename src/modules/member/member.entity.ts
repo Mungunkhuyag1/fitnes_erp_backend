@@ -26,10 +26,16 @@ export class Member {
    * Хүнд харагдах дугаар = Hikvision дээрх `employeeNo`.
    * Дараалал (`member_no_seq`)-аас олгогдоно; гишүүн устсан ч дугаар нь
    * ДАХИН ОЛГОГДОХГҮЙ — эс тэгвээс хуучин ирцийн бичлэг буруу хүнд наалдана.
+   *
+   * ⚠ ТЕКСТ, тоо БИШ. Терминал дээр энэ талбар текст бөгөөд `Adiya` гэх
+   * мэт утга гараар бичигдэж болно (`docs`, migration 1788150000000).
+   * WinFit өөрөө үүсгэхдээ дараалалаас тоо авдаг тул ихэнх утга тоон
+   * шинжтэй ч, ТООЛОХ, ЭРЭМБЭЛЭХ үед `::int` хөрвүүлэлт хэрэгтэй:
+   * текстээр `'999' > '1006'` болно.
    */
   @Index('uq_members_no', { unique: true })
-  @Column({ name: 'member_no', type: 'int' })
-  memberNo: number;
+  @Column({ name: 'member_no', type: 'varchar', length: 32 })
+  memberNo: string;
 
   @Column({ type: 'varchar', length: 120 })
   name: string;

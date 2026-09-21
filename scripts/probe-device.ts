@@ -83,7 +83,7 @@ async function main(): Promise<void> {
       name: '4. UserInfo/Search — одоо хэдэн хэрэглэгч байна',
       run: async () => {
         // employeeNo 1 байгаа эсэхийг шалгах — хариуны БҮТЦИЙГ харах гол зорилго
-        const u = await api.searchUser(1);
+        const u = await api.searchUser('1');
         console.log(`     employeeNo=1 → ${u ? 'олдлоо' : 'алга'}`);
         return u;
       },
@@ -91,8 +91,8 @@ async function main(): Promise<void> {
     {
       name: '5. FDLib/FDSearch — царайн сангийн хариу',
       run: async () => {
-        const f = await api.faceStatus([1]);
-        console.log(`     employeeNo=1 царай → ${f[1] ? 'бүртгэлтэй' : 'алга'}`);
+        const f = await api.faceStatus(['1']);
+        console.log(`     employeeNo=1 царай → ${f['1'] ? 'бүртгэлтэй' : 'алга'}`);
         return f;
       },
     },

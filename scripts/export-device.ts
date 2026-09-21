@@ -112,9 +112,9 @@ async function main(): Promise<void> {
   // Багцалж асууна — нэг нэгээр нь асуувал 339 хүсэлт болно.
   process.stdout.write('  4. Царайн бүртгэл… ');
   const nos = users
-    .map((u) => Number(u.employeeNo))
-    .filter((n) => Number.isFinite(n));
-  const faces: Record<number, boolean> = {};
+    .map((u) => String(u.employeeNo ?? '').trim())
+    .filter((n) => !!n);
+  const faces: Record<string, boolean> = {};
   for (let i = 0; i < nos.length; i += 20) {
     const part = nos.slice(i, i + 20);
     try {

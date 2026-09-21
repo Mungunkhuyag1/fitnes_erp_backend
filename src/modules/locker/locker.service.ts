@@ -498,7 +498,7 @@ export class LockerService {
 
   private view(
     a: LockerAssignment,
-    member: { id: string; name: string; memberNo: number } | null,
+    member: { id: string; name: string; memberNo: string } | null,
   ) {
     return {
       id: a.id,

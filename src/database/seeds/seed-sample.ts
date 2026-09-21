@@ -258,7 +258,7 @@ async function main(): Promise<void> {
     const [{ nextval }] = await ds.query<{ nextval: string }[]>(
       `SELECT nextval('member_no_seq')`,
     );
-    const memberNo = Number(nextval);
+    const memberNo = nextval;
 
     // Хамгийн эртний худалдан авалтаас өмнө бүртгүүлсэн байна.
     const oldest = spec.purchases.length

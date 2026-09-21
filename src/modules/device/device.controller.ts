@@ -164,7 +164,7 @@ export class DeviceController {
     @Query('eventHours') eventHours?: string,
   ) {
     return this.diag.run({
-      employeeNo: employeeNo ? Number(employeeNo) : undefined,
+      employeeNo: employeeNo?.trim() || undefined,
       eventHours: eventHours ? Number(eventHours) : undefined,
     });
   }

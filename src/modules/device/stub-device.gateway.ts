@@ -14,8 +14,23 @@ import type {
   UpsertUserInput,
 } from './device.gateway';
 
+/**
+ * Текст дугаарыг ТООН эрэмбээр жиших.
+ *
+ * `member_no` нь текст болсон тул энгийн эрэмбэ `'10' < '9'` гэж
+ * буруу дараалуулна. Тоон утгыг тоогоор, тоо бишийг эцэст нь тавина.
+ */
+function numericThenText(a: string, b: string): number {
+  const na = /^\d+$/.test(a) ? Number(a) : null;
+  const nb = /^\d+$/.test(b) ? Number(b) : null;
+  if (na !== null && nb !== null) return na - nb;
+  if (na !== null) return -1;
+  if (nb !== null) return 1;
+  return a.localeCompare(b);
+}
+
 interface StubUser {
-  employeeNo: number;
+  employeeNo: string;
   name: string;
   begin: Date;
   end: Date;
@@ -38,7 +53,7 @@ interface StubUser {
 @Injectable()
 export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
   private readonly log = new Logger(StubDeviceGateway.name);
-  private readonly users = new Map<number, StubUser>();
+  private readonly users = new Map<string, StubUser>();
   /** Экспортоос ачаалсан бодит эвент — `fetchEvents` эндээс өгнө. */
   private replayEvents: Record<string, unknown>[] = [];
   /** Экспортын төхөөрөмжийн мэдээлэл, байвал `info()` үүнийг буцаана. */
@@ -103,13 +118,15 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
    *  • `extras`   — хэн нэгэн терминал дээр гараар хүн нэмсэн мэт
    */
   devMakeDrift(n = 3): {
-    removed: number[];
-    shifted: number[];
-    disabled: number[];
-    both: number[];
-    added: { employeeNo: number; name: string }[];
+    removed: string[];
+    shifted: string[];
+    disabled: string[];
+    both: string[];
+    added: { employeeNo: string; name: string }[];
   } {
-    const nos = [...this.users.keys()].sort((a, b) => a - b);
+    // ⚠ Түлхүүр нь ТЕКСТ тул тоон эрэмбийг гараар: `localeCompare` бол
+    //   `'10' < '9'` гэнэ. Тоо биш утга эцэст нь очно.
+    const nos = [...this.users.keys()].sort(numericThenText);
 
     // 1. Устгана — «терминал дээр алга» болно.
     const removed = nos.slice(0, n);
@@ -150,7 +167,7 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
     //    жинхэнэ гишүүн «илүү» гэж буруу харагдана.
     const base = 900_001;
     const added = Array.from({ length: n }, (_, i) => ({
-      employeeNo: base + i,
+      employeeNo: String(base + i),
       name: ['Цэвэрлэгч Дорж', 'Дасгалжуулагч Сараа', 'Зочин Бат'][i] ?? `Туршилт ${i + 1}`,
     }));
     for (const a of added) {
@@ -197,8 +214,8 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
     for (const u of rows) {
       // ⚠ `employeeNo` нь ТЕКСТ — «Adiya» гэсэн ч байж болно. Stub нь
       // тоон түлхүүртэй тул хөрвөхгүйг алгасна.
-      const no = Number(u.employeeNo);
-      if (!Number.isInteger(no) || no <= 0) continue;
+      const no = String(u.employeeNo ?? '').trim();
+      if (!no) continue;
       const v = (u.Valid ?? {}) as Record<string, string | boolean>;
       const parse = (x: unknown, fallback: Date): Date => {
         const d = typeof x === 'string' ? new Date(x) : null;
@@ -211,7 +228,7 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
         end: parse(v.endTime, new Date()),
         enable: v.enable !== false,
         // Экспортод царайтай байсан бол ТЭР ДАРУЙ бүртгэлтэй гэж үзнэ.
-        faceAt: faces[String(no)] ? 0 : Number.MAX_SAFE_INTEGER,
+        faceAt: faces[no] ? 0 : Number.MAX_SAFE_INTEGER,
       });
     }
   }
@@ -248,10 +265,10 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
     }));
   }
 
-  async faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>> {
+  async faceStatus(employeeNos: string[]): Promise<Record<string, FaceInfo>> {
     await this.simulate('faceStatus');
     const now = Date.now();
-    const out: Record<number, FaceInfo> = {};
+    const out: Record<string, FaceInfo> = {};
     for (const no of employeeNos) {
       const u = this.users.get(no);
       const enrolled = !!u && now >= u.faceAt;
@@ -326,7 +343,7 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
 
   // ── Дуурайлгах ──
 
-  private async simulate(op: string, employeeNo?: number): Promise<void> {
+  private async simulate(op: string, employeeNo?: string): Promise<void> {
     if (this.config.get<boolean>('stub.deviceOffline')) {
       throw new Error('Терминал холбогдохгүй байна (stub: offline)');
     }

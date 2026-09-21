@@ -15,7 +15,7 @@ import { ReminderKind, ReminderLog } from './reminder-log.entity';
 
 interface Candidate {
   memberId: string;
-  memberNo: number;
+  memberNo: string;
   name: string;
   daysLeft: number;
   hasCard: boolean;

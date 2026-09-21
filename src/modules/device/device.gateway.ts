@@ -19,14 +19,14 @@ export const DEVICE_GATEWAY = Symbol('DEVICE_GATEWAY');
  * `setValidity` бүтэлгүйтвэл БҮТЭН `upsertUser` хийж нөхнө (device-sync.service).
  */
 export class MissingDeviceUserError extends Error {
-  constructor(readonly employeeNo: number) {
+  constructor(readonly employeeNo: string) {
     super(`Терминал дээр ${employeeNo} дугаартай хэрэглэгч байхгүй`);
     this.name = 'MissingDeviceUserError';
   }
 }
 
 export interface UpsertUserInput {
-  employeeNo: number;
+  employeeNo: string;
   name: string;
   /** Эрхийн эхлэх/дуусах хугацаа (Hikvision `Valid`). */
   begin: Date;
@@ -36,7 +36,7 @@ export interface UpsertUserInput {
 }
 
 export interface SetValidityInput {
-  employeeNo: number;
+  employeeNo: string;
   begin: Date;
   end: Date;
   enable: boolean;
@@ -53,15 +53,11 @@ export interface DeviceInfo {
 /** Терминал дээр бодитоор байгаа хэрэглэгчийн мөр — тулгалтад. */
 export interface DeviceUserRow {
   /**
-   * ⚠ ТОО БАЙХ БАТАЛГААГҮЙ.
-   *
-   * Терминал дээр `employeeNo` нь ТЕКСТ талбар: `admin`, `Adiya` гэх
-   * мэт утга гараар бичигдэж болно. Тэгвэл энэ нь `NaN` болно —
-   * `Number.isInteger()`-ээр шалгаж байж л санд өгнө.
+   * ⚠ ТЕКСТ. Терминал дээр энэ нь текст талбар бөгөөд `admin`, `Adiya`
+   * гэх мэт утга гараар бичигдэж болно. ISAPI өөрөө ч `String(...)`-ээр
+   * дамжуулдаг — тоо болгох нь WinFit-ийн зохиомол хязгаарлалт байв.
    */
-  employeeNo: number;
-  /** Терминал дээр ЯГ юу бичигдсэн — алдаатай мөрийг нэрлэхэд. */
-  rawNo?: string;
+  employeeNo: string;
   name: string;
   begin: Date | null;
   end: Date | null;
@@ -105,7 +101,7 @@ export interface DeviceGateway {
   listUsers(): Promise<DeviceUserRow[]>;
 
   /** Заасан хүмүүсийн царай бүртгэгдсэн эсэх. */
-  faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>>;
+  faceStatus(employeeNos: string[]): Promise<Record<string, FaceInfo>>;
 
   openDoor(doorNo?: number): Promise<void>;
 

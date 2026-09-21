@@ -26,7 +26,7 @@ export class IsapiError extends Error {
 
 /** Терминал дээр тухайн хэрэглэгч байхгүй. */
 export class IsapiUserNotFound extends Error {
-  constructor(readonly employeeNo: number) {
+  constructor(readonly employeeNo: string) {
     super(`Терминал дээр ${employeeNo} дугаартай хэрэглэгч байхгүй`);
     this.name = 'IsapiUserNotFound';
   }
@@ -116,13 +116,13 @@ export class IsapiClient {
   //  Хэрэглэгч
   // ══════════════════════════════════════════════════════════════
 
-  async searchUser(employeeNo: number): Promise<Json | null> {
+  async searchUser(employeeNo: string): Promise<Json | null> {
     const body = JSON.stringify({
       UserInfoSearchCond: {
         searchID: `winfit-${employeeNo}`,
         searchResultPosition: 0,
         maxResults: 1,
-        EmployeeNoList: [{ employeeNo: String(employeeNo) }],
+        EmployeeNoList: [{ employeeNo }],
       },
     });
     const { status, text } = await this.json(
@@ -183,7 +183,7 @@ export class IsapiClient {
    * гарахгүй — дуудагч тал идемпотент байдлыг мэдрэхгүй.
    */
   async upsertUser(input: {
-    employeeNo: number;
+    employeeNo: string;
     name: string;
     beginTime: string;
     endTime: string;
@@ -193,7 +193,7 @@ export class IsapiClient {
   }): Promise<'created' | 'updated'> {
     const payload = {
       UserInfo: {
-        employeeNo: String(input.employeeNo),
+        employeeNo: input.employeeNo,
         name: input.name,
         userType: 'normal',
         Valid: {
@@ -226,7 +226,7 @@ export class IsapiClient {
 
   /** Зөвхөн хугацаа/идэвхийг өөрчлөх. Хэрэглэгч байхгүй бол алдаа. */
   async setValidity(input: {
-    employeeNo: number;
+    employeeNo: string;
     name: string;
     beginTime: string;
     endTime: string;
@@ -242,7 +242,7 @@ export class IsapiClient {
       '/ISAPI/AccessControl/UserInfo/Modify?format=json',
       JSON.stringify({
         UserInfo: {
-          employeeNo: String(input.employeeNo),
+          employeeNo: input.employeeNo,
           // ⚠ Modify нь бүтэн обьект хүлээдэг — `name` дутвал устгагдаж болно.
           name: input.name,
           Valid: {
@@ -288,8 +288,8 @@ export class IsapiClient {
    * `FDSearch` нь тааралтын жагсаалтад `faceURL`-ыг хамт буцаадаг тул
    * тусад нь дахин хүсэлт явуулах шаардлагагүй.
    */
-  async faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>> {
-    const out: Record<number, FaceInfo> = {};
+  async faceStatus(employeeNos: string[]): Promise<Record<string, FaceInfo>> {
+    const out: Record<string, FaceInfo> = {};
     for (const no of employeeNos) {
       const { status, text } = await this.json(
         'POST',
@@ -299,7 +299,7 @@ export class IsapiClient {
           maxResults: 1,
           faceLibType: 'blackFD',
           FDID: '1',
-          FPID: String(no),
+          FPID: no,
         }),
       );
       if (status !== 200) {

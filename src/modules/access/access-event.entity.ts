@@ -40,9 +40,14 @@ export class AccessEvent {
   @Column({ name: 'member_id', type: 'uuid', nullable: true })
   memberId: string | null;
 
-  /** Терминал дээрх дугаар. Гишүүн олдоогүй ч хадгална. */
-  @Column({ name: 'employee_no', type: 'int', nullable: true })
-  employeeNo: number | null;
+  /**
+   * Терминал дээрх дугаар. Гишүүн олдоогүй ч хадгална.
+   *
+   * ⚠ ТЕКСТ — `members.member_no`-той тулгалддаг тул төрөл нь ижил байх
+   * ЁСТОЙ. Терминал текст дугаар илгээж чадна (migration 1788150000000).
+   */
+  @Column({ name: 'employee_no', type: 'varchar', length: 32, nullable: true })
+  employeeNo: string | null;
 
   @Index('ix_access_at')
   @Column({ name: 'event_at', type: 'timestamptz' })

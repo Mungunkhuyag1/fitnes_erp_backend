@@ -166,7 +166,7 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
     });
   }
 
-  async faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>> {
+  async faceStatus(employeeNos: string[]): Promise<Record<string, FaceInfo>> {
     return this.guard(() => this.api().faceStatus(employeeNos));
   }
 
@@ -176,11 +176,9 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
       return raw.map((u) => {
         const valid = (u.Valid ?? {}) as Record<string, unknown>;
         return {
-          // ⚠ `NaN` гарч болно — терминал дээр текст дугаар бичигдсэн бол.
-          //   Энд ХАЯХГҮЙ: аль мөр болохыг дуудагч мэдэж, ажилтанд
-          //   хэлэх ёстой. Чимээгүй алгасвал тэр хүн үүрд импортлогдохгүй.
-          employeeNo: Number(u.employeeNo),
-          rawNo: String(u.employeeNo ?? ''),
+          // ⚠ Тоо болгохгүй. Терминал дээр `Adiya` гэх мэт текст дугаар
+          //   байж болох ба WinFit нь одоо түүнийг шууд хадгална.
+          employeeNo: String(u.employeeNo ?? '').trim(),
           name: String(u.name ?? ''),
           begin: parseLocal(valid.beginTime),
           end: parseLocal(valid.endTime),
@@ -226,7 +224,7 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
 
   // ══════════════════════════════════════════════════════════════
 
-  private async nameOf(employeeNo: number): Promise<string> {
+  private async nameOf(employeeNo: string): Promise<string> {
     const user = await this.api().searchUser(employeeNo);
     if (!user) throw new IsapiUserNotFound(employeeNo);
     return String(user.name ?? `№${employeeNo}`);

@@ -14,7 +14,7 @@ import type { ListAccessEventsDto } from './dto/access.dto';
 
 export interface IngestInput {
   deviceId?: string | null;
-  employeeNo: number;
+  employeeNo: string;
   eventAt: Date;
   granted?: boolean;
   reason?: AccessReason;

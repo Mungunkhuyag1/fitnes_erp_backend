@@ -80,7 +80,7 @@ export interface RawAcsEvent {
 }
 
 export interface MappedEvent {
-  employeeNo: number | null;
+  employeeNo: string | null;
   eventAt: Date;
   granted: boolean;
   reason: AccessReason;
@@ -118,11 +118,20 @@ export function mapAcsEvent(e: RawAcsEvent): MappedEvent | null {
   const t = e.time ? new Date(e.time) : null;
   if (!t || Number.isNaN(t.getTime())) return null;
 
-  // `employeeNoString` нь текст — «Adiya» гэсэн ч байж болно. WinFit-ийн
-  // `member_no` нь тоо тул хөрвөхгүйг алгасна (тэр хүн WinFit-д алга).
+  /*
+   * `employeeNoString` нь ТЕКСТ — «Adiya» гэсэн ч байж болно.
+   *
+   * ⚠ Урьд нь энд `Number()` хийж, тоо биш бол ХАЯДАГ байв. Тэгснээр
+   * терминал дээр текст дугаартай хүний ирц `member_id` NULL-тай
+   * үүрд өнчин үлддэг байлаа. `member_no` текст болсон тул (migration
+   * 1788150000000) одоо шууд тулгалдана.
+   *
+   * Хоосон болон 32 тэмдэгтээс урт утгыг л хаяна: эхнийх нь «дугаар
+   * ирээгүй», хоёр дахь нь баганад багтахгүй.
+   */
   const rawNo = e.employeeNoString ?? e.employeeNo;
-  const num = rawNo !== undefined && rawNo !== null ? Number(rawNo) : NaN;
-  const employeeNo = Number.isInteger(num) && num > 0 ? num : null;
+  const text = rawNo === undefined || rawNo === null ? '' : String(rawNo).trim();
+  const employeeNo = text && text.length <= 32 ? text : null;
 
   return {
     employeeNo,

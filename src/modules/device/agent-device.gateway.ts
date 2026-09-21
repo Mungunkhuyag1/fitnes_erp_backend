@@ -28,7 +28,7 @@ export class AgentDeviceGateway implements DeviceGateway {
   setValidity(_input: SetValidityInput): Promise<void> {
     this.notReady();
   }
-  faceStatus(_employeeNos: number[]): Promise<Record<number, FaceInfo>> {
+  faceStatus(_employeeNos: string[]): Promise<Record<string, FaceInfo>> {
     this.notReady();
   }
   listUsers(): Promise<DeviceUserRow[]> {

@@ -3,7 +3,7 @@ import type { DataSource } from 'typeorm';
 export interface MemberBrief {
   id: string;
   name: string;
-  memberNo: number;
+  memberNo: string;
 }
 
 /**
@@ -25,7 +25,7 @@ export async function loadMembers(
 ): Promise<Map<string, MemberBrief>> {
   const clean = [...new Set(ids.filter((v): v is string => !!v && UUID.test(v)))];
   if (!clean.length) return new Map();
-  const rows = await ds.query<{ id: string; name: string; member_no: number }[]>(
+  const rows = await ds.query<{ id: string; name: string; member_no: string }[]>(
     `SELECT id, name, member_no FROM members WHERE id = ANY($1)`,
     [clean],
   );

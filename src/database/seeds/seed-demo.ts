@@ -156,7 +156,7 @@ async function main(): Promise<void> {
     const createdAt = new Date(now.getTime() - joinedDaysAgo * 86_400_000);
     members.push(
       memberRepo.create({
-        memberNo: Number(seq[0].nextval),
+        memberNo: seq[0].nextval,
         name: `${FIRST[i % FIRST.length]}${i >= FIRST.length ? ` ${Math.floor(i / FIRST.length) + 1}` : ''}`,
         phone: String(88000000 + i * 1237).slice(0, 8),
         email: rng.chance(0.4) ? `member${i}@example.mn` : null,

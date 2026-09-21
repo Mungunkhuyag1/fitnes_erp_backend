@@ -177,7 +177,7 @@ export class SyncJobsController {
   @Post('device-audit/push')
   @ApiOperation({ summary: 'WinFit → терминал (нэг гишүүн)' })
   async auditPush(
-    @Body() body: { employeeNo?: number },
+    @Body() body: { employeeNo?: string | number },
     @CurrentUser() user: AuthUser,
   ) {
     const no = this.employeeNo(body.employeeNo);
@@ -186,7 +186,7 @@ export class SyncJobsController {
       staffUserId: user.id,
       action: 'device.auditPush',
       entity: 'device',
-      entityId: String(no),
+      entityId: no,
       after: { employeeNo: no },
     });
     return r;
@@ -202,7 +202,7 @@ export class SyncJobsController {
   @Post('device-audit/pull')
   @ApiOperation({ summary: 'Терминал → WinFit (нэг хэрэглэгч)' })
   async auditPull(
-    @Body() body: { employeeNo?: number },
+    @Body() body: { employeeNo?: string | number },
     @CurrentUser() user: AuthUser,
   ) {
     const no = this.employeeNo(body.employeeNo);
@@ -246,11 +246,17 @@ export class SyncJobsController {
   }
 
 
-  private employeeNo(v: unknown): number {
-    const n = Number(v);
-    if (!Number.isInteger(n) || n <= 0) {
+  /**
+   * ⚠ ТЕКСТ. Терминал дээр дугаар нь `Adiya` гэх мэт байж болно
+   * (migration 1788150000000) тул тоон шалгалт тавибал тэр
+   * хэрэглэгчийг ОГТ дуудаж чадахгүй болно. Хоосон биш, баганадаа
+   * багтах эсэхийг л шалгана.
+   */
+  private employeeNo(v: unknown): string {
+    const s = typeof v === 'number' || typeof v === 'string' ? String(v).trim() : '';
+    if (!s || s.length > 32) {
       throw new BadRequestException('employeeNo буруу байна');
     }
-    return n;
+    return s;
   }
 }

@@ -117,7 +117,7 @@ function ageFrom(birth: string | null, tz: string): number | null {
 
 export interface MemberRow {
   id: string;
-  memberNo: number;
+  memberNo: string;
   name: string;
   phone: string | null;
   status: MemberStatus;
@@ -151,11 +151,24 @@ export interface MemberDetail extends MemberRow {
   updatedAt: Date;
 }
 
+/*
+ * ★ ДУГААРААР ЭРЭМБЭЛЭХ — ТЕКСТ БОЛСОН ТУЛ БЭЛТГЭНЭ.
+ *
+ * `member_no` нь `varchar` (migration 1788150000000). Шууд
+ * эрэмбэлвэл `'1006' < '9'` болж №йг тогтоогүй бутаана.
+ *
+ * `lpad`-аар тегшлэхэд тоон утгууд зөв дарааллана; тоо биш
+ * утга (`Adiya`) нь үсгээр эхэлдэг тул цифрүүдийн ДАРАА очно —
+ * энэ нь хүссэн зүйл: тэд цөөхөн бөгөөд сүүлд нь байх нь ойлгомжтой.
+ */
+const MEMBER_NO_SORT =
+  "(CASE WHEN m.member_no ~ '^[0-9]+$' THEN lpad(m.member_no, 12, '0') ELSE m.member_no END)";
+
 const SORT_COLUMNS: Record<string, string> = {
   name: 'm.name',
   endsAt: 'm.access_ends_at',
   createdAt: 'm.created_at',
-  memberNo: 'm.member_no',
+  memberNo: MEMBER_NO_SORT,
   lastVisit: 'm.last_visit_at',
 };
 
@@ -502,11 +515,14 @@ export class MemberService {
    * Дарааллаас дараагийн дугаар. Транзакц буцсан ч дугаар «идэгдэнэ» —
    * энэ нь ЗӨВ: дугаар дахин ашиглагдахгүй гэдэг баталгаа илүү чухал.
    */
-  private async nextMemberNo(): Promise<number> {
+  private async nextMemberNo(): Promise<string> {
     const rows = await this.ds.query<{ nextval: string }[]>(
       `SELECT nextval('member_no_seq')`,
     );
-    return Number(rows[0].nextval);
+    // ⚠ `member_no` нь ТЕКСТ (migration 1788150000000). Дараалал нь
+    //   тоо өгсөөр байна — WinFit-ийн үүсгэсэн гишүүд тоон дугаартай
+    //   хэвээр, зөвхөн терминалаас ирсэн нь текст байж болно.
+    return String(rows[0].nextval);
   }
 
   private row(m: Member): MemberRow {

@@ -103,9 +103,9 @@ export class DeviceDiagnosticsService {
     }
   }
 
-  async run(opts: { employeeNo?: number; eventHours?: number } = {}): Promise<DiagResult> {
+  async run(opts: { employeeNo?: string; eventHours?: number } = {}): Promise<DiagResult> {
     const api = await this.client();
-    const employeeNo = opts.employeeNo ?? 1;
+    const employeeNo = opts.employeeNo ?? '1';
     const hours = Math.min(720, Math.max(1, opts.eventHours ?? 24));
 
     const defs: Omit<DiagStep, 'ok' | 'ms' | 'data' | 'error'>[] = [

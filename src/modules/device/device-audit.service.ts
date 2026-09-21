@@ -34,7 +34,7 @@ export interface FieldDiff {
  * ЯГ ЯМАР талбар, ЯМАР утгууд зөрсөнийг харуулна.
  */
 export interface DriftRow {
-  employeeNo: number;
+  employeeNo: string;
   name: string;
   fields: FieldDiff[];
 }
@@ -184,7 +184,7 @@ export class DeviceAuditService {
    * «Терминал дээр алга», «зөрүүтэй», «нэр зөрсөн» гурвуулан дээр
    * ажиллана — бүгд нь «WinFit-ийнхээр болго» гэсэн нэг үйлдэл.
    */
-  async push(employeeNo: number): Promise<{ queued: number }> {
+  async push(employeeNo: string): Promise<{ queued: number }> {
     const m = await this.members.findOne({
       where: { memberNo: employeeNo },
       select: { id: true },
@@ -212,7 +212,7 @@ export class DeviceAuditService {
    *  • Гишүүн байхгүй → терминалын мэдээллээр ШИНЭ гишүүн үүсгэнэ
    *  • Гишүүн байгаа  → нэр, дуусах огноо, төлвийг терминалынхаар солино
    */
-  async pull(employeeNo: number): Promise<{
+  async pull(employeeNo: string): Promise<{
     action: 'created' | 'updated';
     memberId: string;
     name: string;
@@ -282,7 +282,7 @@ export class DeviceAuditService {
         created++;
         if (names.length < 20) names.push(`№${u.employeeNo} ${r.name}`);
       } catch (e) {
-        const who = `«${u.rawNo ?? u.employeeNo}» ${u.name || '—'}`;
+        const who = `«${u.employeeNo}» ${u.name || '—'}`;
         failed.push(`${who}: ${(e as Error).message}`);
         this.log.error(`Терминалаас авч чадсангүй: ${who} — ${(e as Error).message}`);
       }
@@ -331,18 +331,18 @@ export class DeviceAuditService {
     const employeeNo = u.employeeNo;
 
     /*
-     * ★ ДУГААР ЗААВАЛ ТОО.
+     * ★ ДУГААР ХООСОН БАЙЖ БОЛОХГҮЙ.
      *
-     * `member_no` нь Postgres дээр `int`. Терминалын `employeeNo` нь
-     * ТЕКСТ тул `admin` гэх мэт утга `NaN` болж, хамгаалалтгүй бол
-     * `invalid input syntax for type integer: "NaN"` (22P02) гэж
-     * ДУНД НЬ унана — өмнөх бүх бичилт үлдэж, импорт тал дундаа
-     * зогсоно. Тиймээс санд хүрэхээс нь ӨМНӨ таслана.
+     * Тоо байх шаардлагыг migration 1788150000000 дээр авч хаясан —
+     * `Adiya` гэх мэт текст дугаар одоо хэвийн. Гэвч ХООСОН утга нь
+     * өөр хэрэг: `member_no` нь гишүүнийг ирцтэй холбодог түлхүүр
+     * бөгөөд хоосон байвал бүх «дугааргүй» хүн нэг мөр рүү нийлнэ.
+     * Уртыг нь ч шалгана — багана `varchar(32)`.
      */
-    if (!Number.isInteger(employeeNo) || employeeNo <= 0 || employeeNo > 2_147_483_647) {
+    if (!employeeNo || employeeNo.length > 32) {
       throw new BadRequestException(
-        `Терминал дээрх дугаар тоо биш: «${u.rawNo ?? employeeNo}» (нэр: ${u.name || '—'}). ` +
-          'Терминал дээр нь тоон дугаар болгож засаад дахин оролдоно уу.',
+        `Терминал дээрх дугаар буруу: «${employeeNo}» (нэр: ${u.name || '—'}). ` +
+          'Хоосон биш, 32 тэмдэгтээс богино байх ёстой.',
       );
     }
 

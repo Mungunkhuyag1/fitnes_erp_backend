@@ -579,7 +579,7 @@ export class MembershipService {
   // ── Дотоод ──
 
   private async memberNames(ids: string[]) {
-    if (!ids.length) return new Map<string, { name: string; memberNo: number }>();
+    if (!ids.length) return new Map<string, { name: string; memberNo: string }>();
     const rows = await this.members.find({
       where: { id: In(ids) },
       select: { id: true, name: true, memberNo: true },

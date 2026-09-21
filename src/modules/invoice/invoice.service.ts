@@ -37,7 +37,7 @@ export interface InvoiceView {
    * ⚠ Урьд нь ЭНЭ ТАЛБАР БАЙГААГҮЙ атлаа dashboard нь хүлээж, `№` гэж
    * хоосон хэвлэдэг байв (`undefined !== null` нь үнэн).
    */
-  memberNo?: number | null;
+  memberNo?: string | null;
   packageName: string;
   days: number;
   amount: number;
@@ -297,7 +297,7 @@ export class InvoiceService {
       id: string;
       memberId: string;
       memberName: string | null;
-      memberNo: number | null;
+      memberNo: string | null;
       packageName: string;
       amount: number;
       paidAt: Date | null;
@@ -323,7 +323,7 @@ export class InvoiceService {
         id: string;
         memberId: string;
         memberName: string | null;
-        memberNo: number | null;
+        memberNo: string | null;
         packageName: string;
         amount: string;
         paidAt: Date | null;
@@ -549,7 +549,7 @@ export class InvoiceService {
   private view(
     i: Invoice,
     memberName?: string | null,
-    memberNo?: number | null,
+    memberNo?: string | null,
   ): InvoiceView {
     return {
       id: i.id,

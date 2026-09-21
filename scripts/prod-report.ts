@@ -48,16 +48,23 @@ async function main() {
 
   console.log('\n── Гишүүдийн бүрэлдэхүүн ──');
   const m = await ds.query(`
+    -- ⚠ member_no нь ТЕКСТ болсон: шууд min/max нь '999' > '1006' гэж
+    --   буруу хариулна. Тоон утгыг нь л хөрвүүлж жишнэ.
     SELECT count(*)::int AS niit,
-           min(member_no) AS baga,
-           max(member_no) AS ih,
+           min(member_no::int) FILTER (WHERE member_no ~ '^[0-9]+$') AS baga,
+           max(member_no::int) FILTER (WHERE member_no ~ '^[0-9]+$') AS ih,
+           count(*) FILTER (WHERE member_no !~ '^[0-9]+$')::int AS tekst,
            count(*) FILTER (WHERE note LIKE '%терминалаас импортлов%')::int AS importloson
     FROM members`);
   console.log(m[0]);
 
   console.log('\n── Эхний 10 гишүүн ──');
   for (const r of await ds.query(
-    `SELECT member_no, name, status, note FROM members ORDER BY member_no LIMIT 10`,
+    `SELECT member_no, name, status, note FROM members
+       ORDER BY (member_no ~ '^[0-9]+$') DESC,
+                CASE WHEN member_no ~ '^[0-9]+$' THEN member_no::bigint END,
+                member_no
+       LIMIT 10`,
   )) {
     console.log(
       `  №${String(r.member_no).padEnd(10)} ${String(r.name).padEnd(22)} ${r.status}  ${r.note ?? ''}`,

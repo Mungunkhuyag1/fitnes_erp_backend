@@ -66,7 +66,7 @@ export class ReadOnlyDeviceGateway implements DeviceGateway {
   }
 
   // ── Зөвшөөрсөн ──
-  faceStatus(employeeNos: number[]): Promise<Record<number, FaceInfo>> {
+  faceStatus(employeeNos: string[]): Promise<Record<string, FaceInfo>> {
     return this.inner.faceStatus(employeeNos);
   }
   listUsers(): Promise<DeviceUserRow[]> {
