@@ -21,6 +21,43 @@ const DENIED = new Set([
   76, // царай танигдсангүй (6/1738)
 ]);
 
+/**
+ * Ирц БИШ гэдэг нь БАТЛАГДСАН кодууд (`docs/03` §6.1, 1,738 эвент).
+ *
+ * ★ ЯАГААД ЖАГСААХ ХЭРЭГТЭЙ ВЭ
+ *
+ * Эдгээрийг «танихгүй» гэж үзвэл лог сэрэмжлүүлгээр дүүрнэ — зөвхөн
+ * хаалганы мэдрэгч нь нийт эвентийн 73% (1,265/1,738). Тэр чимээн дунд
+ * ҮНЭХЭЭР танихгүй шинэ код гарвал хэн ч анзаарахгүй.
+ *
+ * Мэддэг боловч хэрэггүй кодыг ЧИМЭЭГҮЙ алгасч, үл мэдэгдэх кодод л
+ * сэрэмжлүүлнэ.
+ */
+const DEVICE_ONLY = new Map<number, string>([
+  [21, 'хаалганы мэдрэгч'],
+  [22, 'хаалганы мэдрэгч'],
+  [23, 'хаалганы мэдрэгч'],
+  [24, 'хаалганы мэдрэгч'],
+  [112, 'алсаас нэвтэрсэн'],
+  [121, 'төхөөрөмжийн эвент'],
+  [122, 'төхөөрөмжийн эвент'],
+  [1024, 'төхөөрөмжийн эвент'],
+  [1030, 'төхөөрөмжийн эвент'],
+]);
+
+/** Эвентийн код юуг илтгэхийг ангилна. */
+export function classifyMinor(
+  minor?: number,
+): { kind: 'access' | 'device' | 'unknown'; label: string } {
+  if (minor === undefined) return { kind: 'unknown', label: 'код байхгүй' };
+  if (GRANTED.has(minor) || DENIED.has(minor)) {
+    return { kind: 'access', label: 'нэвтрэлт' };
+  }
+  const known = DEVICE_ONLY.get(minor);
+  if (known) return { kind: 'device', label: known };
+  return { kind: 'unknown', label: 'танихгүй код' };
+}
+
 export interface RawAcsEvent {
   major?: number;
   minor?: number;

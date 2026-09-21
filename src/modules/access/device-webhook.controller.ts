@@ -15,7 +15,7 @@ import { ApiExcludeController } from '@nestjs/swagger';
 import { timingSafeEqual } from 'crypto';
 import { Public } from '../../common/decorators/public.decorator';
 import { AccessService } from './access.service';
-import { mapAcsEvent } from './acs-event.mapper';
+import { classifyMinor, mapAcsEvent } from './acs-event.mapper';
 import { parseWebhookPayload } from './webhook-payload';
 import { WebhookInspector } from './webhook-inspector.service';
 
@@ -81,8 +81,14 @@ export class DeviceWebhookController {
 
     for (const e of events) {
       const code = `minor=${e.minor ?? '—'}/major=${e.major ?? '—'}`;
-      if (e.minor !== undefined && !this.knownMinor(e.minor)) {
-        skipped.push(`${code} танихгүй код`);
+      const cls = classifyMinor(e.minor);
+      if (cls.kind !== 'access') {
+        // Зөвхөн ҮНЭХЭЭР танихгүй кодод сэрэмжлүүлнэ — мэдэгдэж буй
+        // хаалганы мэдрэгч нь 73% тул тэдэнд сэрэмжлүүлбэл лог дүүрнэ.
+        if (cls.kind === 'unknown' && e.minor !== undefined) {
+          this.noteUnknown(e.minor);
+        }
+        skipped.push(`${code} ${cls.label}`);
         continue;
       }
       const m = mapAcsEvent(e);
@@ -98,7 +104,16 @@ export class DeviceWebhookController {
          * ядаж ямар тохиолдол болохыг таамаглахад тустай.
          */
         const who = typeof e.name === 'string' && e.name ? ` «${e.name}»` : '';
-        skipped.push(`${code} хүний дугааргүй${who}`);
+        /*
+         * ⚠ ТҮҮХИЙ утгыг бичнэ. Терминал `employeeNoString`-д ТЕКСТ
+         * зөвшөөрдөг («adiya», регистр г.м.) бол WinFit-ийн `member_no`
+         * нь ТОО. Хөрвөхгүй бол хэн болох нь тодорхойгүй болж мөр
+         * үүсэхгүй. Юу ирснийг харуулбал заалан дээр терминалын
+         * бүртгэлийг засах эсэхийг шийдэж болно.
+         */
+        const rawNo = e.employeeNoString ?? e.employeeNo;
+        const got = rawNo === undefined || rawNo === '' ? 'хоосон' : `"${rawNo}"`;
+        skipped.push(`${code} хүний дугааргүй (employeeNo=${got})${who}`);
         continue;
       }
 
@@ -216,14 +231,20 @@ export class DeviceWebhookController {
    *   · `{ ... }`                            — шууд эвент
    *   · `[ {...}, {...} ]`                   — багц
    */
-  private knownMinor(minor: number): boolean {
-    const known = [75, 104, 8, 76].includes(minor);
-    if (!known && !this.seenUnknown.has(minor)) {
-      this.seenUnknown.add(minor);
-      // Шинэ firmware өөр код илгээж болно. Таамаглаж «зөвшөөрөв» гэж
-      // бүртгэхгүй — харин мэдэгдэнэ.
-      this.log.warn(`Танихгүй эвентийн код minor=${minor} — алгаслаа`);
-    }
-    return known;
+  /**
+   * Үл мэдэгдэх кодыг НЭГ л удаа сануулна.
+   *
+   * ⚠ Зөвхөн `classifyMinor` нь `unknown` гэсэн кодод дуудагдана.
+   * Хаалганы мэдрэгч (21–24) зэрэг БАТЛАГДСАН кодод дуудвал лог
+   * сэрэмжлүүлгээр дүүрч, жинхэнэ шинэ код живнэ.
+   */
+  private noteUnknown(minor: number): void {
+    if (this.seenUnknown.has(minor)) return;
+    this.seenUnknown.add(minor);
+    // Таамаглаж «зөвшөөрөв» гэж бүртгэхгүй — харин мэдэгдэнэ.
+    this.log.warn(
+      `Танихгүй эвентийн код minor=${minor} — алгаслаа. ` +
+        'Ирц мөн эсэхийг docs/03 §6.1-тэй тулгана уу.',
+    );
   }
 }
