@@ -70,17 +70,35 @@ export class DeviceWebhookController {
     let ingested = 0;
     /** Ижил секундэд давхар ирсэн — ХЭВИЙН, доорх тайлбарыг үз. */
     let duplicate = 0;
-    /** Ирцэд хамааралгүй төхөөрөмжийн эвент — мөн хэвийн. */
-    let skipped = 0;
+    /**
+     * Алгассан эвент бүрийн ШАЛТГААН.
+     *
+     * Зөвхөн тоо хэвлэвэл «1 ширхэг алгаслаа» гэдгээс цаашгүй — хаалганы
+     * мэдрэгч үү, эсвэл бидний танихгүй ШИНЭ код уу гэдэг ялгарахгүй.
+     * Эхнийх нь хэвийн, хоёр дахь нь ирц алдагдаж байгааг илтгэнэ.
+     */
+    const skipped: string[] = [];
 
     for (const e of events) {
+      const code = `minor=${e.minor ?? '—'}/major=${e.major ?? '—'}`;
       if (e.minor !== undefined && !this.knownMinor(e.minor)) {
-        skipped++;
+        skipped.push(`${code} танихгүй код`);
         continue;
       }
       const m = mapAcsEvent(e);
-      if (!m || m.employeeNo === null) {
-        skipped++;
+      if (!m) {
+        skipped.push(`${code} ирцийн эвент биш`);
+        continue;
+      }
+      if (m.employeeNo === null) {
+        /*
+         * Ирцийн код мөн боловч ХҮНИЙ ДУГААР дагалдаагүй — ихэвчлэн
+         * minor 76 (царай танигдсангүй). Хэн болох нь тодорхойгүй тул
+         * мөр үүсгэж чадахгүй. Терминалын өгсөн нэрийг хэвлэвэл
+         * ядаж ямар тохиолдол болохыг таамаглахад тустай.
+         */
+        const who = typeof e.name === 'string' && e.name ? ` «${e.name}»` : '';
+        skipped.push(`${code} хүний дугааргүй${who}`);
         continue;
       }
 
@@ -107,8 +125,8 @@ export class DeviceWebhookController {
     } else if (duplicate) {
       // Хос эвентийн хоёр дахь нь — хүлээгдэж буй зүйл, LOG биш DEBUG.
       this.log.debug(`Давхардсан түлхэлт алгаслаа (${duplicate})`);
-    } else if (skipped) {
-      this.log.debug(`Ирцэд хамааралгүй эвент (${skipped})`);
+    } else if (skipped.length) {
+      this.log.debug(`Ирцэд хамааралгүй эвент — ${skipped.join(' · ')}`);
     }
     /*
      * ⚠ ЧИМЭЭГҮЙ БҮТЭЛГҮЙТЭЛ — энэ төслийн хамгийн хортой алдаа.
