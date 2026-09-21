@@ -350,9 +350,19 @@ export class IsapiClient {
     position = 0,
     max = 100,
   ): Promise<{ events: Json[]; total: number; raw: string }> {
-    const { status, text } = await this.json(
-      'POST',
-      '/ISAPI/AccessControl/AcsEvent?format=json',
+    /*
+     * ★ `picEnable` — ЗУРГИЙН ХАЯГ АВАХ ТүЛХҮҮР.
+     *
+     * Энэ талбаргүй бол олон firmware хариундаа `pictureURL`-ыг
+     * ОГТ өгдөггүй. Түлхэлт нь хаяг илгээдэггүй тул энэ нь
+     * ирцийн кадрыг авах ЦОРЫН ГАНЦ зам.
+     *
+     * ⚠ Зарим firmware танихгүй талбарт алдаа өгдөг. Тэр үед
+     *   ИРЦ ТАТАХ БҮХЭЛДЭЭ ЗОГСОХ ёсгүй — зураг нь таатай зүйл,
+     *   ирц нь зайлшгүй. Тиймээс алдаа өгвөл АНХНЫ хэлбэрээр
+     *   дахин оролдоно.
+     */
+    const cond = (pic: boolean): string =>
       JSON.stringify({
         AcsEventCond: {
           searchID: 'winfit-events',
@@ -362,9 +372,20 @@ export class IsapiClient {
           minor: 0,
           startTime: this.isoLocal(from),
           endTime: this.isoLocal(to),
+          ...(pic ? { picEnable: true } : {}),
         },
-      }),
-    );
+      });
+
+    const path = '/ISAPI/AccessControl/AcsEvent?format=json';
+    let { status, text } = await this.json('POST', path, cond(true));
+    if (status !== 200) {
+      // Чимээгүй буцахгүй: зураг хэзээ ч ирэхгүй шалтгааныг хэлнэ.
+      this.log.warn(
+        `Эвент татахад терминал «picEnable»-ыг авсангүй (${status}) — ` +
+          'зураггүйгээр дахин оролдоно. Ирцийн кадр байхгүй байх болно.',
+      );
+      ({ status, text } = await this.json('POST', path, cond(false)));
+    }
     if (status !== 200) throw new IsapiError(status, text);
     const parsed = this.parse(text);
     const acs = parsed.AcsEvent as Json | undefined;

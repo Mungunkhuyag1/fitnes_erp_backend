@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
 import { startOfLocalDay } from '../../common/utils/date.util';
 import type {
+  TopMembersDto,
   AttendanceQueryDto,
   DateRangeDto,
   RevenueQueryDto,
@@ -35,6 +36,24 @@ const RANGE_SPEC: Record<
   '30d': { unit: 'day', back: '29 days', window: '30 days', label: 'Сүүлийн 30 хоног' },
   '12m': { unit: 'month', back: '11 months', window: '12 months', label: 'Сүүлийн 12 сар' },
 };
+
+/*
+ * ★ АЖИЛТНЫ ИРЦИЙГ ТАЙЛАНГААС ХАСАХ.
+ *
+ * Терминал дээр ажилтан, дасгалжуулагч нар өдөр бүр, заримдаа
+ * өдөрт хэдэн удаа уншуулна. Тэднийг тооцвол «хамгийн идэвхтэй
+ * гишүүд»-ийн дээд тал бүхэлдээ ажилтан болж, өдрийн ирц хэт
+ * өндөр харагдана — бизнесийн шийдвэр гуйвана.
+ *
+ * ⚠ Аль хүн ажилтан бэ гэдгийг ТААМАГЛАХГҮЙ: `staff_user_id`
+ * нь ажилтан ГАРААР холбосон тохиолдолд л дүүрэнэ
+ * (migration 1788160000000). Холбоогүй ажилтан тайлангаас
+ * ХАСАГДАХГҮЙ — энэ нь зориуд: систем өөрөө шийдэхгүй.
+ *
+ * Дэд асуулга нь `ix_members_not_staff` хэсэгчилсэн индексээр явна.
+ */
+const NOT_STAFF = (alias: string): string =>
+  `${alias} IN (SELECT id FROM members WHERE staff_user_id IS NULL)`;
 
 @Injectable()
 export class ReportService {
@@ -76,7 +95,9 @@ export class ReportService {
       SELECT
         -- «Өдөрт 1 ирц» дүрэм: нэг хүн хэдэн ч удаа уншуулсан 1 гэж тооцно
         (SELECT count(DISTINCT member_id) FROM access_events, today
-          WHERE granted AND member_id IS NOT NULL AND event_at >= today.start) AS today_visits,
+          WHERE granted AND member_id IS NOT NULL
+            AND ${NOT_STAFF('member_id')}
+            AND event_at >= today.start) AS today_visits,
         (SELECT count(*) FROM access_events, today
           WHERE event_at >= today.start) AS today_scans,
         (SELECT count(*) FROM access_events, today
@@ -227,6 +248,7 @@ export class ReportService {
           coalesce((
             SELECT count(DISTINCT e.member_id) FROM access_events e
             WHERE e.granted AND e.member_id IS NOT NULL
+              AND ${NOT_STAFF('e.member_id')}
               AND date_trunc($2, e.event_at AT TIME ZONE $1) = buckets.b
           ), 0) AS visits
         FROM buckets ORDER BY buckets.b
@@ -414,7 +436,9 @@ export class ReportService {
           WHERE granted AND event_at BETWEEN $1 AND $2) AS scans,
         (SELECT count(DISTINCT (member_id, (event_at AT TIME ZONE $3)::date))
            FROM access_events
-          WHERE granted AND member_id IS NOT NULL AND event_at BETWEEN $1 AND $2) AS visits,
+          WHERE granted AND member_id IS NOT NULL
+            AND ${NOT_STAFF('member_id')}
+            AND event_at BETWEEN $1 AND $2) AS visits,
         (SELECT coalesce(sum(amount),0) FROM memberships
           WHERE reversed_at IS NOT NULL AND created_at BETWEEN $1 AND $2) AS reversed
       `,
@@ -502,7 +526,9 @@ export class ReportService {
         `SELECT to_char((event_at AT TIME ZONE $3)::date,'YYYY-MM-DD') AS bucket,
                 count(DISTINCT member_id) AS visits, count(*) AS scans
          FROM access_events
-         WHERE granted AND member_id IS NOT NULL AND event_at BETWEEN $1 AND $2
+         WHERE granted AND member_id IS NOT NULL
+           AND ${NOT_STAFF('member_id')}
+           AND event_at BETWEEN $1 AND $2
          GROUP BY 1 ORDER BY 1`,
         [from, to, this.tz],
       );
@@ -604,14 +630,23 @@ export class ReportService {
     };
   }
 
-  /** Хамгийн олон ирсэн гишүүд — «өдөрт 1» дүрмээр. */
-  async topMembers(q: DateRangeDto) {
+  /**
+   * Хамгийн олон ирсэн гишүүд — «өдөрт 1» дүрмээр.
+   *
+   * ⚠ Ажилтны данстай холбогдсон хүнийг ХАСНА (`NOT_STAFF`).
+   *   Ажилтан өдөр бүр уншуулдаг тул энэ жагсаалтын дээд талыг
+   *   бүрэн эзлэх бөгөөд жинхэнэ гишүүд харагдахгүй болно.
+   */
+  async topMembers(q: TopMembersDto) {
     const { from, to } = this.range(q);
+    // Хязгаарыг ПАРАМЕТРээр ӨГДӨГГҮЙ — DTO нь 1..100 гэж шалгасан
+    // бүхэл тоо болгосон тул шууд байрлуулах нь аюулгүй.
+    const limit = Math.min(Math.max(Math.trunc(q.limit ?? 10), 1), 100);
     const rows = await this.ds.query<
       {
         id: string;
         name: string;
-        member_no: number;
+        member_no: string;
         visits: string;
         last_visit: Date | null;
       }[]
@@ -622,9 +657,10 @@ export class ReportService {
        FROM access_events e
        JOIN members m ON m.id = e.member_id
        WHERE e.granted AND e.event_at BETWEEN $1 AND $2
+         AND m.staff_user_id IS NULL
        GROUP BY m.id, m.name, m.member_no
        ORDER BY visits DESC, last_visit DESC
-       LIMIT 10`,
+       LIMIT ${limit}`,
       [from, to, this.tz],
     );
     return {

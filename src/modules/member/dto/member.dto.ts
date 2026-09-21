@@ -8,11 +8,13 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { PageQueryDto } from '../../../common/dto/pagination.dto';
 import { CardStage } from '../../../common/enums/card-stage.enum';
@@ -216,4 +218,18 @@ export class ListMembersDto extends PageQueryDto {
   @IsOptional()
   @IsIn(['name', 'endsAt', 'createdAt', 'memberNo', 'lastVisit'])
   sort?: string;
+}
+
+/**
+ * Гишүүн ↔ ажилтны дансны холбоос.
+ *
+ * `null` нь САЛГАХ гэсэн үг — тиймээс `@IsOptional()` дээр зогсохгүй,
+ * зориуд `null`-ыг зөвшөөрнө.
+ */
+export class SetStaffUserDto {
+  @ApiPropertyOptional({ nullable: true, description: 'Ажилтны ID, салгахад null' })
+  @IsOptional()
+  @ValidateIf((_o: unknown, v: unknown) => v !== null)
+  @IsUUID()
+  staffUserId?: string | null;
 }

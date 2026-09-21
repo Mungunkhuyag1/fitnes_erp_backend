@@ -86,6 +86,34 @@ export class AccessService {
 
     const inserted = (res.identifiers?.[0]?.id ?? null) !== null;
 
+    /*
+     * ★ ЗУРГЫГ ХОЙШ НӨХӨЖ БИЧНЭ.
+     *
+     * Түлхэлт (`httpHosts`) нь зургийн ХАЯГ илгээдэггүй — зураг нь
+     * multipart-ын тусдаа хэсэгт ХОЁТОНоор ирдэг бөгөөд бид
+     * түүнийг зориуд алгасдаг (`webhook-payload.ts`). Харин 5 минут
+     * тутамын ТАТАГЧ (`AcsEvent` хайлт) `pictureURL`-ыг өгдөг.
+     *
+     * Гэвч тэр үед мөр нь АЛЬ ХЭДИЙН бичигдсэн байдаг тул
+     * `orIgnore()` нь түүнийг чимээгүй хаяж, зураг ХЭЗЭЭ Ч ордоггүй
+     * байв. Тиймээс давхардсан үед зӨВХӨН зургийг нь нөхнө.
+     *
+     * ⚠ `orUpdate()` болговол `inserted` үргэлж үнэн болж, «давхардсан»
+     *   тоолуур алдагдана. Тиймээс тусдаа UPDATE.
+     * ⚠ `picture_path IS NULL` — байгааг нь ДАРЖ бичихгүй.
+     */
+    const picturePath = terminalPath(input.pictureUrl);
+    if (!inserted && picturePath) {
+      await this.repo
+        .createQueryBuilder()
+        .update(AccessEvent)
+        .set({ picturePath })
+        .where('dedupe_key = :key AND picture_path IS NULL', {
+          key: this.dedupeKey(input),
+        })
+        .execute();
+    }
+
     // Сүүлийн ирэлтийн кэш — зөвхөн урагшлана (хоцорсон эвент буцаахгүй).
     if (inserted && granted && member) {
       if (!member.lastVisitAt || member.lastVisitAt < input.eventAt) {
@@ -135,17 +163,36 @@ export class AccessService {
     }
     if (q.reason) qb.andWhere('e.reason = :r', { r: q.reason });
     if (q.q?.trim()) {
-      // Гишүүний нэр/утсаар хайх. Дэд асуулгаар — JOIN нь
-      // `getManyAndCount()`-ыг эвдэж хуудаслалт буруу болгодог.
+      /*
+       * Нэг талбараар ГУРВАН зүйл хайна: нэр, утас, № дугаар.
+       *
+       * ★ ДУГААРЫГ ДЭД АСУУЛГЫН ГАДНА ТАЛД ШАЛГАНА.
+       *
+       * Терминалаас ирсэн уншуулалтын ихэнх нь `member_id` нь NULL
+       * — тэр хүн WinFit-д бүртгэлгүй эсвэл ирц нь импортоос ӨМНӨ
+       * орсон байна. Хэрвээ дугаарыг ч `members` дэд асуулга дотор
+       * шалгавал тэдгээр мөр ОГТ олдохгүй — тиймээс тусдаа шалгана.
+       *
+       * Дугаарын жишилт НЯГТ: `ILIKE '%5%'` болговол №5 хайхад
+       * №455 ч олдоно.
+       */
       const term = q.q.trim();
       const digits = term.replace(/\D/g, '');
-      qb.andWhere(
-        `e.member_id IN (
-           SELECT id FROM members
-           WHERE name ILIKE :like ${digits.length >= 2 ? 'OR phone LIKE :digits' : ''}
-         )`,
-        { like: `%${term}%`, digits: `%${digits}%` },
-      );
+      const no = term.replace(/[№#\s]/g, '');
+      const inMembers = [`name ILIKE :like`];
+      if (digits.length >= 2) inMembers.push('phone LIKE :digits');
+      if (no) inMembers.push('member_no = :no');
+
+      const parts = [
+        `e.member_id IN (SELECT id FROM members WHERE ${inMembers.join(' OR ')})`,
+      ];
+      if (no) parts.push('e.employee_no = :no');
+
+      qb.andWhere(`(${parts.join(' OR ')})`, {
+        like: `%${term}%`,
+        digits: `%${digits}%`,
+        no,
+      });
     }
     // `days` нь `from`-оос давуу — серверийн цагаар тооцно.
     const from =

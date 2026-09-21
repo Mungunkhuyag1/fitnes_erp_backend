@@ -54,3 +54,19 @@ export class AttendanceQueryDto extends DateRangeDto {
   @IsIn(['day', 'hour', 'weekday'])
   groupBy?: 'day' | 'hour' | 'weekday';
 }
+
+/**
+ * Хамгийн идэвхтэй гишүүд — хэдийг харуулах.
+ *
+ * Ажилтны хэрэгцээ танилцаагүй: заримдаа дээд 10, заримдаа
+ * бүхэл жагсаалтыг CSV руу авах шаардлагатай болдог.
+ */
+export class TopMembersDto extends DateRangeDto {
+  @ApiPropertyOptional({ example: 10, minimum: 1, maximum: 100, default: 10 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}

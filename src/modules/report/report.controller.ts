@@ -8,6 +8,7 @@ import {
 import {
   AttendanceQueryDto,
   DateRangeDto,
+  TopMembersDto,
   RevenueQueryDto,
 } from './dto/report.dto';
 import { ReportService, type DashboardRange } from './report.service';
@@ -62,7 +63,7 @@ export class ReportController {
 
   @Get('reports/top-members')
   @ApiOperation({ summary: 'Хамгийн олон ирсэн гишүүд' })
-  topMembers(@Query() q: DateRangeDto) {
+  topMembers(@Query() q: TopMembersDto) {
     return this.reports.topMembers(q);
   }
 

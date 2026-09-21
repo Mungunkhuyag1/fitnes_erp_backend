@@ -11,14 +11,27 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
-import { CreateMemberDto, ListMembersDto, UpdateMemberDto } from './dto/member.dto';
+import {
+  CreateMemberDto,
+  ListMembersDto,
+  SetStaffUserDto,
+  UpdateMemberDto,
+} from './dto/member.dto';
 import { MemberService } from './member.service';
+import { AuditService } from '../audit/audit.service';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../../common/decorators/current-user.decorator';
 
 @ApiTags('members')
 @ApiBearerAuth('access-token')
 @Controller('members')
 export class MemberController {
-  constructor(private readonly members: MemberService) {}
+  constructor(
+    private readonly members: MemberService,
+    private readonly audit: AuditService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -52,6 +65,33 @@ export class MemberController {
   @ApiOperation({ summary: 'Терминал руу дахин бичих (синк алдааны дараа)' })
   resync(@Param('id', ParseUUIDPipe) id: string) {
     return this.members.resync(id);
+  }
+
+  /**
+   * Ажилтны данстай холбох — тайлангаас хасах тэмдэг.
+   *
+   * ADMIN эрхтэй: энэ нь тайлангийн тоог өөрчлөдөг тул ресепшнээс
+   * санамсаргүй дарагдах ёсгүй.
+   */
+  @Roles(Role.ADMIN)
+  @Patch(':id/staff-user')
+  @ApiOperation({ summary: 'Гишүүнийг ажилтны данстай холбох / салгах' })
+  async setStaffUser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetStaffUserDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const before = await this.members.detail(id);
+    const r = await this.members.setStaffUser(id, dto.staffUserId ?? null);
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'member.linkStaff',
+      entity: 'member',
+      entityId: id,
+      before: { staffUser: before.staffUser?.name ?? null },
+      after: { staffUser: r.staffUser?.name ?? null },
+    });
+    return r;
   }
 
   @Roles(Role.MANAGER)

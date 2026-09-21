@@ -147,6 +147,10 @@ export interface MemberDetail extends MemberRow {
   /** Wallet-д нэмсэн төхөөрөмжийн тоо. `null` = хараахан шалгаагүй. */
   walletDevices: number | null;
   payToken: string;
+  /**
+   * Ажилтны данстай холбоос — байвал энэ хүн тайлангаас хасагдана.
+   */
+  staffUser: { id: string; name: string; email: string; role: string } | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -240,12 +244,25 @@ export class MemberService {
       let digits = term.replace(/\D/g, '');
       if (digits.length > 8 && digits.startsWith('00976')) digits = digits.slice(5);
       if (digits.length > 8 && digits.startsWith('976')) digits = digits.slice(3);
-      qb.andWhere(
-        digits.length >= 2
-          ? '(m.name ILIKE :like OR m.phone LIKE :digits)'
-          : 'm.name ILIKE :like',
-        { like: `%${term}%`, digits: `%${digits}%` },
-      );
+      /*
+       * ★ ДУГААР ААР ХАЙХ — ЯГ ТААРАХ ЖИШИГ.
+       *
+       * `ILIKE '%5%'` болговол №5 гэж хайхад №15, №455, №513 бүгд
+       * олдоод хайлт ашиггүй болно. Ажилтан дугаар бичихэд ЯГ
+       * тэр хүнийг хүсч байна.
+       *
+       * `№`, `#`, зайг арилгана — «№513» гэж бичихэд ч ажиллана.
+       * Дугаар нь текст байж болно (`Adiya`) тул цифрээр шалгахгүй.
+       */
+      const no = term.replace(/[№#\s]/g, '');
+      const parts = ['m.name ILIKE :like'];
+      if (digits.length >= 2) parts.push('m.phone LIKE :digits');
+      if (no) parts.push('m.member_no = :no');
+      qb.andWhere(`(${parts.join(' OR ')})`, {
+        like: `%${term}%`,
+        digits: `%${digits}%`,
+        no,
+      });
     }
 
     if (q.status) qb.andWhere('m.status = :status', { status: q.status });
@@ -306,8 +323,22 @@ export class MemberService {
 
   async detail(id: string): Promise<MemberDetail> {
     const m = await this.find(id);
+    /*
+     * Ажилтны дансыг ТҮҮХИЙ асуулгаар — `Member` нь `StaffUser`-тэй
+     * харилцаагүй (модуль хоорондын хамаарал үүсгэхгүй).
+     */
+    const staffUser = m.staffUserId
+      ? ((
+          await this.ds.query<
+            { id: string; name: string; email: string; role: string }[]
+          >(`SELECT id, name, email, role FROM staff_users WHERE id = $1`, [
+            m.staffUserId,
+          ])
+        )[0] ?? null)
+      : null;
     return {
       ...this.row(m),
+      staffUser,
       email: m.email,
       note: m.note,
       gender: m.gender,
@@ -484,6 +515,54 @@ export class MemberService {
   }
 
   // ── Дотоод ──
+
+  /**
+   * Гишүүнийг ажилтны данстай холбох / салгах.
+   *
+   * ★ ЯАГААД ГАРААР ВЭ
+   *
+   * Терминал дээр ажилтан, гишүүн хоёрыг ялгах ТАЛБАР БАЙХГҮЙ.
+   * Нэрээр таамаглах («admin» гэсэн үг хайх гэх мэт) нь алдаатай:
+   * жинхэнэ гишүүн тэр үгтэй нэртэй байж болно. Тиймээс хүн шийднэ.
+   *
+   * ⚙ Гишүүний эрх, ирц, төлбөрт НӨЛӨӨЛӨХГҮЙ — зөвхөн тайланд.
+   */
+  async setStaffUser(id: string, staffUserId: string | null): Promise<MemberDetail> {
+    const m = await this.find(id);
+
+    if (staffUserId) {
+      const [staff] = await this.ds.query<{ id: string; name: string }[]>(
+        `SELECT id, name FROM staff_users WHERE id = $1`,
+        [staffUserId],
+      );
+      if (!staff) throw new NotFoundException('Ажилтны данс олдсонгүй');
+
+      /*
+       * Нэг данс НЭГ хүнтэй. Сан дээр ч UNIQUE индекс байгаа
+       * боловч түүний алдаа нь ажилтанд ойлгомжгүй тул энд ШЭЛГЭЭД
+       * аль гишүүнд залгаастайг нь НЭРЛЭНЭ.
+       */
+      const [taken] = await this.repo.find({
+        where: { staffUserId },
+        select: { id: true, name: true, memberNo: true },
+        take: 1,
+      });
+      if (taken && taken.id !== id) {
+        throw new BadRequestException(
+          `Энэ ажилтан аль хэдийн «${taken.name}» (№${taken.memberNo}) дээр холбогдсон байна`,
+        );
+      }
+    }
+
+    m.staffUserId = staffUserId;
+    await this.repo.save(m);
+    this.log.log(
+      staffUserId
+        ? `№${m.memberNo} ${m.name} — ажилтны данстай холбов (тайлангаас хасагдана)`
+        : `№${m.memberNo} ${m.name} — ажилтны холбоосыг салгав`,
+    );
+    return this.detail(id);
+  }
 
   async find(id: string): Promise<Member> {
     const m = await this.repo.findOne({ where: { id } });
