@@ -3,6 +3,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -122,6 +123,18 @@ export class ListLockersDto extends PageQueryDto {
 }
 
 export class ListAssignmentsDto extends PageQueryDto {
+  /**
+   * Эрэмбэлэх багана — хүснэгтийн толгойн мөр дээрээс.
+   *
+   * ⚠ ЦАГААЖСАН ЖАГСААЛТ — энэ нь SQL түлхэлтийн хил. Утгыг шууд
+   *   `ORDER BY`-д оруулдаг тул жагсаалтад байхгүй утгыг ХЭЗЭЭ Ч
+   *   хүлээж авахгүй.
+   */
+  @ApiPropertyOptional({ enum: ['issuedAt', 'dueAt', 'returnedAt', 'amount', 'locker'] })
+  @IsOptional()
+  @IsIn(['issuedAt', 'dueAt', 'returnedAt', 'amount', 'locker'])
+  sort?: string;
+
   @ApiPropertyOptional({ description: 'Гишүүний нэр эсвэл утсаар хайх' })
   @IsOptional()
   @IsString()

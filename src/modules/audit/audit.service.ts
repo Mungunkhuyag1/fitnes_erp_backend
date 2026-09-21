@@ -17,6 +17,17 @@ export interface AuditInput {
   ip?: string | null;
 }
 
+/*
+ * Эрэмбэлэх багана — ДТО-гийн цагаажсан жагсаалтаас ЗӨВХӨН.
+ *
+ * ⚠ Ажилтны өгсөн утгыг ШУУД `ORDER BY`-д ОРУУЛАХГҮЙ. Энэ
+ *   зураглал ба DTO-гийн `@IsIn` хоёр хослоод SQL түлхэлтийг хаана.
+ */
+const AUDIT_SORT: Record<string, string> = {
+  createdAt: 'a.created_at',
+  action: 'a.action',
+};
+
 @Injectable()
 export class AuditService {
   private readonly log = new Logger(AuditService.name);
@@ -56,7 +67,11 @@ export class AuditService {
     }
     if (q.from) qb.andWhere('a.created_at >= :from', { from: q.from });
     if (q.to) qb.andWhere('a.created_at <= :to', { to: q.to });
-    qb.orderBy('a.created_at', q.order ? q.direction : 'DESC');
+    qb.orderBy(AUDIT_SORT[q.sort ?? ''] ?? 'a.created_at',
+      q.sort || q.order ? q.direction : 'DESC',
+    // Тогтвортой хуудаслалт: тэнцүү утгыг үе бүрд өөр дарааллаар
+    // өгвөл нэг мөр хоёр хуудсанд гарах эсвэл бүрмөсөн алгасагдана.
+    ).addOrderBy('a.id', 'DESC');
     const [rows, total] = await qb.skip(q.skip).take(q.take).getManyAndCount();
 
     // Мөр бүрийг ХҮНТЭЙ холбоно: «member.extend · a3f2…» гэхээс

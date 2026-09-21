@@ -51,6 +51,19 @@ export interface InvoiceView {
   createdAt: Date;
 }
 
+/*
+ * Эрэмбэлэх багана — ДТО-гийн цагаажсан жагсаалтаас ЗӨВХӨН.
+ *
+ * ⚠ Ажилтны өгсөн утгыг ШУУД `ORDER BY`-д ОРУУЛАХГҮЙ. Энэ
+ *   зураглал ба DTO-гийн `@IsIn` хоёр хослоод SQL түлхэлтийг хаана.
+ */
+const INVOICE_SORT: Record<string, string> = {
+  createdAt: 'i.created_at',
+  paidAt: 'i.paid_at',
+  amount: 'i.amount',
+  status: 'i.status',
+};
+
 @Injectable()
 export class InvoiceService {
   private readonly log = new Logger(InvoiceService.name);
@@ -454,7 +467,11 @@ export class InvoiceService {
     }
     if (q.from) qb.andWhere('i.created_at >= :from', { from: q.from });
     if (q.to) qb.andWhere('i.created_at <= :to', { to: q.to });
-    qb.orderBy('i.created_at', q.order ? q.direction : 'DESC');
+    qb.orderBy(INVOICE_SORT[q.sort ?? ''] ?? 'i.created_at',
+      q.sort || q.order ? q.direction : 'DESC',
+    // Тогтвортой хуудаслалт: тэнцүү утгыг үе бүрд өөр дарааллаар
+    // өгвөл нэг мөр хоёр хуудсанд гарах эсвэл бүрмөсөн алгасагдана.
+    ).addOrderBy('i.id', 'DESC');
 
     const [rows, total] = await qb.skip(q.skip).take(q.take).getManyAndCount();
     const ids = [...new Set(rows.map((r) => r.memberId))];

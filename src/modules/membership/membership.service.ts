@@ -48,6 +48,19 @@ export interface ExtendInput {
   ip?: string | null;
 }
 
+/*
+ * Эрэмбэлэх багана — ДТО-гийн цагаажсан жагсаалтаас ЗӨВХӨН.
+ *
+ * ⚠ Ажилтны өгсөн утгыг ШУУД `ORDER BY`-д ОРУУЛАХГҮЙ. Энэ
+ *   зураглал ба DTO-гийн `@IsIn` хоёр хослоод SQL түлхэлтийг хаана.
+ */
+const MEMBERSHIP_SORT: Record<string, string> = {
+  createdAt: 'ms.created_at',
+  endsAt: 'ms.ends_at',
+  amount: 'ms.amount',
+  days: 'ms.days',
+};
+
 @Injectable()
 export class MembershipService {
   private readonly log = new Logger(MembershipService.name);
@@ -551,7 +564,11 @@ export class MembershipService {
     if (q.source) qb.andWhere('ms.source = :src', { src: q.source });
     if (q.from) qb.andWhere('ms.created_at >= :from', { from: q.from });
     if (q.to) qb.andWhere('ms.created_at <= :to', { to: q.to });
-    qb.orderBy('ms.created_at', q.order ? q.direction : 'DESC');
+    qb.orderBy(MEMBERSHIP_SORT[q.sort ?? ''] ?? 'ms.created_at',
+      q.sort || q.order ? q.direction : 'DESC',
+    // Тогтвортой хуудаслалт: тэнцүү утгыг үе бүрд өөр дарааллаар
+    // өгвөл нэг мөр хоёр хуудсанд гарах эсвэл бүрмөсөн алгасагдана.
+    ).addOrderBy('ms.id', 'DESC');
 
     const [rows, total] = await qb.skip(q.skip).take(q.take).getManyAndCount();
     const memberMap = await this.memberNames(rows.map((r) => r.memberId));

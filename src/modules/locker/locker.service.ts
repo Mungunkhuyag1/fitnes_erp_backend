@@ -34,6 +34,20 @@ import type {
   UpdateLockerDto,
 } from './dto/locker.dto';
 
+/*
+ * Эрэмбэлэх багана — ДТО-гийн цагаажсан жагсаалтаас ЗӨВХӨН.
+ *
+ * ⚠ Ажилтны өгсөн утгыг ШУУД `ORDER BY`-д ОРУУЛАХГҮЙ. Энэ
+ *   зураглал ба DTO-гийн `@IsIn` хоёр хослоод SQL түлхэлтийг хаана.
+ */
+const ASSIGNMENT_SORT: Record<string, string> = {
+  issuedAt: 'a.issued_at',
+  dueAt: 'a.due_at',
+  returnedAt: 'a.returned_at',
+  amount: 'a.amount',
+  locker: 'a.locker_id',
+};
+
 @Injectable()
 export class LockerService {
   private readonly log = new Logger(LockerService.name);
@@ -401,7 +415,11 @@ export class LockerService {
         .andWhere('a.due_at IS NOT NULL')
         .andWhere('a.due_at < now()');
     }
-    qb.orderBy('a.issued_at', q.order ? q.direction : 'DESC');
+    qb.orderBy(ASSIGNMENT_SORT[q.sort ?? ''] ?? 'a.issued_at',
+      q.sort || q.order ? q.direction : 'DESC',
+    // Тогтвортой хуудаслалт: тэнцүү утгыг үе бүрд өөр дарааллаар
+    // өгвөл нэг мөр хоёр хуудсанд гарах эсвэл бүрмөсөн алгасагдана.
+    ).addOrderBy('a.id', 'DESC');
 
     const [rows, total] = await qb.skip(q.skip).take(q.take).getManyAndCount();
     const ids = [...new Set(rows.map((r) => r.memberId))];

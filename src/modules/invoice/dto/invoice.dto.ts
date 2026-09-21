@@ -7,6 +7,7 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  IsIn,
 } from 'class-validator';
 import { PageQueryDto } from '../../../common/dto/pagination.dto';
 import { InvoiceStatus } from '../../../common/enums/member-status.enum';
@@ -33,6 +34,18 @@ export class CreateInvoiceDto {
 }
 
 export class ListInvoicesDto extends PageQueryDto {
+  /**
+   * Эрэмбэлэх багана — хүснэгтийн толгойн мөр дээрээс.
+   *
+   * ⚠ ЦАГААЖСАН ЖАГСААЛТ — энэ нь SQL түлхэлтийн хил. Утгыг шууд
+   *   `ORDER BY`-д оруулдаг тул жагсаалтад байхгүй утгыг ХЭЗЭЭ Ч
+   *   хүлээж авахгүй.
+   */
+  @ApiPropertyOptional({ enum: ['createdAt', 'paidAt', 'amount', 'status'] })
+  @IsOptional()
+  @IsIn(['createdAt', 'paidAt', 'amount', 'status'])
+  sort?: string;
+
   @ApiPropertyOptional({ description: 'Гишүүний нэр эсвэл утсаар хайх' })
   @IsOptional()
   @IsString()

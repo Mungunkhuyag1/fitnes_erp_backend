@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsDate,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -85,6 +86,18 @@ export class MemberActionDto {
 }
 
 export class ListMembershipsDto extends PageQueryDto {
+  /**
+   * Эрэмбэлэх багана — хүснэгтийн толгойн мөр дээрээс.
+   *
+   * ⚠ ЦАГААЖСАН ЖАГСААЛТ — энэ нь SQL түлхэлтийн хил. Утгыг шууд
+   *   `ORDER BY`-д оруулдаг тул жагсаалтад байхгүй утгыг ХЭЗЭЭ Ч
+   *   хүлээж авахгүй.
+   */
+  @ApiPropertyOptional({ enum: ['createdAt', 'endsAt', 'amount', 'days'] })
+  @IsOptional()
+  @IsIn(['createdAt', 'endsAt', 'amount', 'days'])
+  sort?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()

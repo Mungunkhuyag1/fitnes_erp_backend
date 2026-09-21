@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsDate,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -16,6 +17,18 @@ import { PageQueryDto } from '../../../common/dto/pagination.dto';
 import { AccessReason } from '../access-event.entity';
 
 export class ListAccessEventsDto extends PageQueryDto {
+  /**
+   * Эрэмбэлэх багана — хүснэгтийн толгойн мөр дээрээс.
+   *
+   * ⚠ ЦАГААЖСАН ЖАГСААЛТ — энэ нь SQL түлхэлтийн хил. Утгыг шууд
+   *   `ORDER BY`-д оруулдаг тул жагсаалтад байхгүй утгыг ХЭЗЭЭ Ч
+   *   хүлээж авахгүй.
+   */
+  @ApiPropertyOptional({ enum: ['eventAt', 'memberNo', 'reason', 'verify'] })
+  @IsOptional()
+  @IsIn(['eventAt', 'memberNo', 'reason', 'verify'])
+  sort?: string;
+
   @ApiPropertyOptional({ description: 'Гишүүний нэр эсвэл утсаар хайх' })
   @IsOptional()
   @IsString()

@@ -26,6 +26,19 @@ export interface IngestInput {
   pictureUrl?: string | null;
 }
 
+/*
+ * Эрэмбэлэх багана — ДТО-гийн цагаажсан жагсаалтаас ЗӨВХӨН.
+ *
+ * ⚠ Ажилтны өгсөн утгыг ШУУД `ORDER BY`-д ОРУУЛАХГҮЙ. Энэ
+ *   зураглал ба DTO-гийн `@IsIn` хоёр хослоод SQL түлхэлтийг хаана.
+ */
+const ACCESS_SORT: Record<string, string> = {
+  eventAt: 'e.event_at',
+  memberNo: 'e.employee_no',
+  reason: 'e.reason',
+  verify: 'e.verify_mode',
+};
+
 @Injectable()
 export class AccessService {
   private readonly log = new Logger(AccessService.name);
@@ -203,10 +216,11 @@ export class AccessService {
         : q.from;
     if (from) qb.andWhere('e.event_at >= :from', { from });
     if (q.to) qb.andWhere('e.event_at <= :to', { to: q.to });
-    qb.orderBy('e.event_at', q.order ? q.direction : 'DESC').addOrderBy(
-      'e.id',
-      'DESC',
-    );
+    qb.orderBy(ACCESS_SORT[q.sort ?? ''] ?? 'e.event_at',
+      q.sort || q.order ? q.direction : 'DESC',
+    // Тогтвортой хуудаслалт: тэнцүү утгыг үе бүрд өөр дарааллаар
+    // өгвөл нэг мөр хоёр хуудсанд гарах эсвэл бүрмөсөн алгасагдана.
+    ).addOrderBy('e.id', 'DESC');
 
     const [rows, total] = await qb.skip(q.skip).take(q.take).getManyAndCount();
     return pageResult(await this.decorate(rows), total, q);
