@@ -111,7 +111,7 @@ export class MetaService {
    */
   async connect(
     input: {
-      pageId: string;
+      pageId?: string;
       token: string;
       appSecret: string;
       verifyToken: string;
@@ -126,7 +126,12 @@ export class MetaService {
       throw new BadRequestException(`Токен шалгагдсангүй: ${detail}`);
     }
 
-    if (me.id !== input.pageId.trim()) {
+    /*
+     * Page ID ӨГСӨН бол таарах эсэхийг шалгана — буруу хуудсын
+     * токен буулгасан эсэхийг барихад. Өгөөгүй бол токеныхыг авна.
+     */
+    const wanted = input.pageId?.trim();
+    if (wanted && me.id !== wanted) {
       throw new BadRequestException(
         `Токен нь өөр хуудсынх байна: ${me.name} (${me.id}). ` +
           'Page ID-г шалгана уу.',

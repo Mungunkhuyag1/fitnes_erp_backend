@@ -15,11 +15,19 @@ import {
  * хариуд хэзээ ч буцаагдахгүй.
  */
 export class ConnectPageDto {
-  @ApiProperty({ example: '102938475610293', description: 'Facebook Page ID' })
+  /**
+   * Заавал биш — токен өөрөө аль хуудсынх болохыг хэлнэ.
+   *
+   * Өгвөл таарах эсэхийг шалгана — буруу токен буулгасан эсэхийг
+   * барихад. Өгөөгүй бол токеныхыг авна: Page ID-г олох нь
+   * Meta-гийн самбарт үргэлж амархан байдаггүй.
+   */
+  @ApiPropertyOptional({ example: '102938475610293', description: 'Facebook Page ID' })
+  @IsOptional()
   @IsString()
   @MinLength(5)
   @MaxLength(40)
-  pageId: string;
+  pageId?: string;
 
   @ApiProperty({ description: 'Page access token (урт хугацааных)' })
   @IsString()
