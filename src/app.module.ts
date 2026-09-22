@@ -28,6 +28,7 @@ import { PackageModule } from './modules/package/package.module';
 import { PublicModule } from './modules/public/public.module';
 import { ReportModule } from './modules/report/report.module';
 import { TaskModule } from './modules/task/task.module';
+import { MetaModule } from './modules/meta/meta.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { StaffModule } from './modules/staff/staff.module';
 
@@ -81,6 +82,7 @@ import { StaffModule } from './modules/staff/staff.module';
     PublicModule,
     ReportModule,
     TaskModule,
+    MetaModule,
     DeviceModule,
     HealthModule,
   ],
