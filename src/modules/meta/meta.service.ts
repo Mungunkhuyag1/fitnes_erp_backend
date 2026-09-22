@@ -286,8 +286,21 @@ export class MetaService {
     return 'closed';
   }
 
+  /**
+   * ⚠ ИДЭВХТЭЙ ХУУДАСНЫХЫГ Л.
+   *
+   * Тест хуудсаар туршаад дараа нь жинхэнэ хуудас руу шилжих нь
+   * хэвийн урсгал. Шүүхгүй бол тестийн ярианууд хайрцагт үлдэж,
+   * ажилтан хариулах гэж оролдоод буруу хуудсанд илгээнэ.
+   *
+   * Хуучин мөрүүд САНД ҮЛДЭНЭ — буцаад тэр хуудсыг холбовол
+   * дахин харагдана. Устгах нь түүхийг алдах тул зориуд хийхгүй.
+   */
   async list(limit = 50): Promise<ConversationRow[]> {
+    const p = await this.page();
+    if (!p) return [];
     const rows = await this.convos.find({
+      where: { pageId: p.pageId },
       order: { lastMessageAt: 'DESC' },
       take: Math.min(limit, 200),
     });
@@ -305,9 +318,13 @@ export class MetaService {
     }));
   }
 
+  /** ⚠ Мөн ИДЭВХТЭЙ хуудсныхыг л — тэмдэг хуучин яриаг тоолох ёсгүй. */
   async unreadCount(): Promise<{ total: number }> {
+    const p = await this.page();
+    if (!p) return { total: 0 };
     const r = await this.convos
       .createQueryBuilder('c')
+      .where('c.page_id = :pid', { pid: p.pageId })
       .select('COALESCE(SUM(c.unread), 0)', 'n')
       .getRawOne<{ n: string }>();
     return { total: Number(r?.n ?? 0) };
