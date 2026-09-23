@@ -12,6 +12,7 @@ import {
   IsapiUserNotFound,
 } from './isapi/isapi.client';
 import {
+  DeviceUnreachableError,
   FaceCaptureCancelledError,
   FaceCaptureTimeoutError,
   FaceRejectedError,
@@ -311,6 +312,22 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
         }
         throw e; // 5xx — түр зуурын
       }
+
+      /*
+       * ★ ТУНЕЛЭЭР ЯВЖ БАЙВАЛ СКАННЕРДАХ НЬ УТГАГҮЙ
+       *
+       * Доорх сэргээлт нь LAN дотор DHCP хаяг солигдсоныг нөхөх
+       * зориулалттай. Гэвч ашиглалтад терминал нь `hik.winfit.mn`
+       * гэсэн ДОМЭЙНААР дамждаг: тэр үед дэд сүлжээ сканнердах нь
+       * Railway-гийн дотоод сүлжээг ухах бөгөөд юу ч олохгүй, зөвхөн
+       * ажилтны хүлээлтийг уртасгана.
+       *
+       * Тиймээс хост нь IP биш бол шууд ил алдаа өгнө — «тунел
+       * салсан» гэдгийг нуухгүй.
+       */
+      const host = this.client?.address.split(':')[0] ?? '';
+      const isLanIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+      if (e instanceof DeviceUnreachableError && !isLanIp) throw e;
 
       // ★ ХАЯГ СОЛИГДСОН БАЙЖ МАГАДГҮЙ
       //

@@ -13,7 +13,14 @@ export interface IsapiConfig {
   headers?: Record<string, string>;
 }
 
-/** Терминал хариу өгсөн ч алдаа буцаасан (ISAPI-ийн статус). */
+/**
+ * Терминал хариу өгсөн ч алдаа буцаасан (ISAPI-ийн статус).
+ *
+ * ⚠ Энэ нь «ТӨХӨӨРӨМЖ ХАРИУЛСАН» гэсэн үг. Тунел салах, сүлжээ
+ * тасрах зэрэг нь `DeviceUnreachableError` — хоёуланг нь нэг төрлөөр
+ * харуулбал ажилтан терминал эвдэрсэн үү, холболт салсан уу гэдгийг
+ * ялгаж чадахгүй.
+ */
 export class IsapiError extends Error {
   constructor(
     readonly status: number,
@@ -78,6 +85,7 @@ export class IsapiFaceCaptureCancelled extends Error {
 }
 
 import { terminalPath } from './terminal-path';
+import { assertReachable } from './unreachable';
 import type { FaceInfo } from '../device.gateway';
 
 interface Json {
@@ -199,6 +207,7 @@ export class IsapiClient {
       'GET',
       '/ISAPI/System/deviceInfo',
     );
+    assertReachable(status, text);
     if (status !== 200) throw new IsapiError(status, text);
     return {
       model: this.xmlValue(text, 'model') ?? 'unknown',
@@ -224,6 +233,7 @@ export class IsapiClient {
   /** Терминалын цаг. Зөрвөл эрх эрт/оройтож дуусна. */
   async getTime(): Promise<{ localTime: string; timeZone: string; raw: string }> {
     const { status, text } = await this.http.request('GET', '/ISAPI/System/time');
+    assertReachable(status, text);
     if (status !== 200) throw new IsapiError(status, text);
     return {
       localTime: this.xmlValue(text, 'localTime') ?? '',
@@ -555,6 +565,14 @@ export class IsapiClient {
         throw e;
       }
       const ct = (res.contentType ?? '').toLowerCase();
+      /*
+       * ⚠ Зураг эсвэл multipart ирсэн бол тэр нь ТЕРМИНАЛЫНХ — шалгах
+       * шаардлагагүй. Харин текст ирвэл Cloudflare-ийн алдааны хуудас
+       * байж магадгүй тул задлахын өмнө шалгана.
+       */
+      if (!ct.startsWith('image/') && !ct.includes('multipart')) {
+        assertReachable(res.status, res.bytes.toString('utf8'));
+      }
 
       /*
        * ⚠ `log`, `debug` БИШ — production дээр Nest нь `debug`-ийг
@@ -816,6 +834,7 @@ export class IsapiClient {
       '<RemoteControlDoor><cmd>open</cmd></RemoteControlDoor>',
       { 'Content-Type': 'application/xml' },
     );
+    assertReachable(status, text);
     if (status !== 200) throw new IsapiError(status, text);
   }
 
@@ -911,10 +930,20 @@ export class IsapiClient {
     return this.parse(text) as T;
   }
 
-  private json(method: string, path: string, body?: string) {
-    return this.http.request(method, path, body, {
+  /**
+   * JSON дуудлага — ХАРИУ НЬ ТЕРМИНАЛЫНХ эсэхийг эхлээд шалгана.
+   *
+   * ⚠ Энд шалгах нь санамсаргүй биш: ISAPI дуудлага бүр энэ хоёр
+   * туслахаар дамждаг тул нэг газар тавьснаар БҮГД хамрагдана.
+   * Дуудлага тус бүрт шалгалт нэмбэл нэгийг нь мартах нь цаг
+   * хугацааны асуудал — шинээр нэмэгдсэн нь шалгалтгүй үлдэнэ.
+   */
+  private async json(method: string, path: string, body?: string) {
+    const r = await this.http.request(method, path, body, {
       'Content-Type': 'application/json',
     });
+    assertReachable(r.status, r.text);
+    return r;
   }
 
   private parse(text: string): Json {

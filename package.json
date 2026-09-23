@@ -36,7 +36,8 @@
     "seed:packages:prod": "node dist/src/database/seeds/seed-packages.js",
     "import:device:prod": "node dist/src/database/seeds/import-device.js",
     "check:task-expand": "ts-node -r tsconfig-paths/register scripts/check-task-expand.ts",
-    "check:capture-face": "ts-node -r tsconfig-paths/register scripts/check-capture-face.ts"
+    "check:capture-face": "ts-node -r tsconfig-paths/register scripts/check-capture-face.ts",
+    "check:unreachable": "ts-node -r tsconfig-paths/register scripts/check-unreachable.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

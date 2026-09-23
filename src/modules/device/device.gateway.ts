@@ -62,6 +62,32 @@ export class FaceCaptureCancelledError extends Error {
   }
 }
 
+/**
+ * Терминал руу ХҮРСЭНГҮЙ — хариу нь төхөөрөмжийнх БИШ.
+ *
+ * ★ ЯАГААД ТУСДАА ТӨРӨЛ ВЭ
+ *
+ * Терминал Cloudflare тунелээр дамждаг. Тунел унавал Cloudflare
+ * ӨӨРИЙН алдааны ХУУДСЫГ буцаадаг (530 + 6 КБ HTML). Үүнийг ISAPI-ийн
+ * хариу гэж үзвэл ажилтанд «Internal server error» гэж харагдах ба
+ * юу болсон нь огт ойлгогдохгүй: терминал эвдэрсэн үү, тунел салсан
+ * уу, эсвэл WinFit-д алдаа гарсан уу.
+ *
+ * Энэ нь ТЕХНИКИЙН БИШ, ЗОХИОН БАЙГУУЛАЛТЫН асуудал: заалан дээрх
+ * компьютерийг асаах хэрэгтэй. Тиймээс мессеж нь тэр алхам руу
+ * чиглүүлэх ёстой.
+ */
+export class DeviceUnreachableError extends Error {
+  constructor(
+    readonly reason: string,
+    /** Хооронд байгаа зүйлийн буцаасан статус (байвал). */
+    readonly status?: number,
+  ) {
+    super(`Терминалтай холбогдсонгүй — ${reason}`);
+    this.name = 'DeviceUnreachableError';
+  }
+}
+
 export interface UpsertUserInput {
   employeeNo: string;
   name: string;

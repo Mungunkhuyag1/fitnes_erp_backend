@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
+import { DeviceUnreachableError } from '../device.gateway';
+import { networkReason } from './unreachable';
 
 /**
  * HTTP Digest authentication.
@@ -249,7 +251,24 @@ export class DigestClient {
             ) as ArrayBuffer,
           );
 
-    const send = (auth?: string): Promise<Response> =>
+    /*
+     * ⚠ СҮЛЖЭЭНИЙ ДОГОЛДЛЫГ ЭНД БАРЬЖ НЭРЛЭНЭ.
+     *
+     * `fetch` нь `TypeError: fetch failed` гэж шиддэг бөгөөд жинхэнэ
+     * шалтгаан нь `cause.code` дотор нуугдана. Нэрлээгүй бол дэлгэц
+     * дээр «fetch failed» гэж гарч, ажилтан юу хийхээ мэдэхгүй.
+     */
+    const send = async (auth?: string): Promise<Response> => {
+      try {
+        return await rawSend(auth);
+      } catch (e) {
+        const reason = networkReason(e);
+        if (reason) throw new DeviceUnreachableError(reason);
+        throw e;
+      }
+    };
+
+    const rawSend = (auth?: string): Promise<Response> =>
       fetch(url, {
         method,
         headers: {

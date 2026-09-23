@@ -4,7 +4,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { join } from 'path';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { DeviceErrorFilter } from './common/filters/device-error.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { configuration } from './config/configuration';
@@ -92,6 +93,15 @@ import { StaffModule } from './modules/staff/staff.module';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+
+    /*
+     * Терминалын алдааг хүний хэлээр буцаана.
+     *
+     * ⚠ Контроллер бүрт `try/catch` бичихгүй байх нь зорилго: терминал
+     * руу хандах гарц олон бөгөөд шинээр нэмэгдсэн нь үргэлж
+     * хамгаалалтгүй үлдэнэ. Энэ нь бүгдийн доогуур өнгөрдөг ганц цэг.
+     */
+    { provide: APP_FILTER, useClass: DeviceErrorFilter },
   ],
 })
 export class AppModule {}
