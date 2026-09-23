@@ -54,6 +54,14 @@ export class FaceRejectedError extends Error {
   }
 }
 
+/** Ажилтан уншуулалтыг зогсоов — алдаа БИШ. */
+export class FaceCaptureCancelledError extends Error {
+  constructor() {
+    super('Царай уншуулахыг цуцлав');
+    this.name = 'FaceCaptureCancelledError';
+  }
+}
+
 export interface UpsertUserInput {
   employeeNo: string;
   name: string;
@@ -149,7 +157,7 @@ export interface DeviceGateway {
    * ⚠ Хэрэглэгч терминал дээр БАЙХ ёстой: царай нь `employeeNo`-д
    * холбогддог. Байхгүй бол `MissingDeviceUserError`.
    */
-  enrollFace(employeeNo: string): Promise<FaceInfo>;
+  enrollFace(employeeNo: string, signal?: AbortSignal): Promise<FaceInfo>;
 
   openDoor(doorNo?: number): Promise<void>;
 

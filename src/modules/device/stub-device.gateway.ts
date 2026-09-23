@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { basename, join } from 'path';
 import { ConfigService } from '@nestjs/config';
 import {
+  FaceCaptureCancelledError,
   FaceCaptureTimeoutError,
   MissingDeviceUserError,
   type DeviceUserRow,
@@ -297,13 +298,28 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
    *
    * `STUB_FACE_CAPTURE_FAIL=true` бол «олдсонгүй» замыг турших.
    */
-  async enrollFace(employeeNo: string): Promise<FaceInfo> {
+  async enrollFace(employeeNo: string, signal?: AbortSignal): Promise<FaceInfo> {
     await this.simulate('enrollFace', employeeNo);
     const u = this.users.get(employeeNo);
     // Жинхэнэ терминал дээр ч царай нь хэрэглэгчид холбогддог.
     if (!u) throw new MissingDeviceUserError(employeeNo);
 
-    await new Promise((r) => setTimeout(r, 2_500));
+    /*
+     * ⚠ Цуцлалтыг ЭНД ч дуурайлгана. Stub нь 2.5 секундэд дуусдаг тул
+     * «Цуцлах» товч хөгжүүлэлтийн явцад ХЭЗЭЭ Ч туршигдахгүй байсан —
+     * `STUB_FACE_CAPTURE_WAIT_MS` уртасгаж туршина.
+     */
+    const wait = Number(process.env.STUB_FACE_CAPTURE_WAIT_MS ?? 2_500);
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(done, wait);
+      function done(): void {
+        clearTimeout(t);
+        signal?.removeEventListener('abort', done);
+        resolve();
+      }
+      signal?.addEventListener('abort', done, { once: true });
+    });
+    if (signal?.aborted) throw new FaceCaptureCancelledError();
 
     if (process.env.STUB_FACE_CAPTURE_FAIL === 'true') {
       throw new FaceCaptureTimeoutError();

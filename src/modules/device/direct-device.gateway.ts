@@ -6,11 +6,13 @@ import {
   DigestAuthError,
   IsapiClient,
   IsapiError,
+  IsapiFaceCaptureCancelled,
   IsapiFaceCaptureTimeout,
   IsapiFaceRejected,
   IsapiUserNotFound,
 } from './isapi/isapi.client';
 import {
+  FaceCaptureCancelledError,
   FaceCaptureTimeoutError,
   FaceRejectedError,
   MissingDeviceUserError,
@@ -185,12 +187,16 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
    * Оронд нь хэрэглэгч байгаа эсэхийг УРЬДЧИЛЖ шалгана: тэр нь богино
    * дуудлага тул `guard`-тай аюулгүй.
    */
-  async enrollFace(employeeNo: string): Promise<FaceInfo> {
+  async enrollFace(employeeNo: string, signal?: AbortSignal): Promise<FaceInfo> {
     const exists = await this.guard(() => this.api().searchUser(employeeNo));
     if (!exists) throw new MissingDeviceUserError(employeeNo);
 
     try {
-      const info = await this.api().enrollFace(employeeNo, this.faceWaitMs);
+      const info = await this.api().enrollFace(
+        employeeNo,
+        this.faceWaitMs,
+        signal,
+      );
       this.log.log(`Терминал: №${employeeNo} царай уншуулав`);
       return info;
     } catch (e) {
@@ -199,6 +205,9 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
       }
       if (e instanceof IsapiFaceRejected) {
         throw new FaceRejectedError(e.message);
+      }
+      if (e instanceof IsapiFaceCaptureCancelled) {
+        throw new FaceCaptureCancelledError();
       }
       if (e instanceof DigestAuthError) throw new PermanentError(e.message);
       /*

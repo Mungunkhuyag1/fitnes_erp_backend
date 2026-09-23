@@ -64,11 +64,44 @@ export class IsapiFaceRejected extends Error {
   }
 }
 
+/**
+ * Ажилтан уншуулалтыг ЗОГСООВ.
+ *
+ * ⚠ Алдаа БИШ — хүсэлтийг сонгож зогсоосон. Логт «алдаа» гэж
+ * бичигдвэл жинхэнэ доголдлыг хайхад саад болно.
+ */
+export class IsapiFaceCaptureCancelled extends Error {
+  constructor() {
+    super('Царай уншуулахыг цуцлав');
+    this.name = 'IsapiFaceCaptureCancelled';
+  }
+}
+
 import { terminalPath } from './terminal-path';
 import type { FaceInfo } from '../device.gateway';
 
 interface Json {
   [k: string]: unknown;
+}
+
+/**
+ * Цуцлалтыг СОНСДОГ хүлээлт.
+ *
+ * Энгийн `setTimeout` нь «Цуцлах» дарсан ч дуустлаа хүлээдэг. Энд тэр
+ * нь 1.5 секунд боловч цуцлалт мэдрэгдэх хугацааг уртасгах тул
+ * дохиогоор нь тасална.
+ */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const t = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(t);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    }
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 /** `CaptureFaceDataCond` XML — `dataType` нь `null` бол талбарыг огт бичихгүй. */
@@ -435,9 +468,10 @@ export class IsapiClient {
   async enrollFace(
     employeeNo: string,
     waitMs = 60_000,
+    signal?: AbortSignal,
   ): Promise<FaceInfo> {
-    const jpeg = await this.captureFace(waitMs);
-    await this.putFace(employeeNo, jpeg);
+    const jpeg = await this.captureFace(waitMs, signal);
+    await this.putFace(employeeNo, jpeg, signal);
     const status = await this.faceStatus([employeeNo]);
     const info = status[employeeNo] ?? { enrolled: false, path: null };
     if (!info.enrolled) {
@@ -469,7 +503,7 @@ export class IsapiClient {
    * түүхийгээр `debug` түвшинд логлоно — газар дээр нэг удаа ажиллуулж
    * харснаар цаашдын засвар хурдан болно.
    */
-  async captureFace(waitMs = 60_000): Promise<Buffer> {
+  async captureFace(waitMs = 60_000, signal?: AbortSignal): Promise<Buffer> {
     const deadline = Date.now() + waitMs;
     // Нэг оролдлогод терминалд өгөх хугацаа. Cloudflare tunnel нь
     // origin-ийн хариуг ~100 сек хүлээдэг тул түүнээс доогуур барина.
@@ -492,18 +526,34 @@ export class IsapiClient {
        * баталгаажуулах (15с) нэмэгдэж, нийт хүсэлт 100 секундээс
        * давна — Cloudflare тунел яг тэнд таслаад 524 буцаана.
        */
+      if (signal?.aborted) throw new IsapiFaceCaptureCancelled();
       if (Date.now() >= deadline) throw new IsapiFaceCaptureTimeout();
 
       const variant = this.captureVariant();
-      const res = await this.http.requestBytes(
-        'POST',
-        '/ISAPI/AccessControl/CaptureFaceData',
-        {
-          body: variant.body,
-          headers: { 'Content-Type': 'application/xml' },
-          timeoutMs: perTry + 5_000,
-        },
-      );
+      let res: { status: number; bytes: Buffer; contentType: string | null };
+      try {
+        res = await this.http.requestBytes(
+          'POST',
+          '/ISAPI/AccessControl/CaptureFaceData',
+          {
+            body: variant.body,
+            headers: { 'Content-Type': 'application/xml' },
+            timeoutMs: perTry + 5_000,
+            signal,
+          },
+        );
+      } catch (e) {
+        /*
+         * ⚠ Цуцлалтыг сүлжээний тасалдлаас ЯЛГАНА.
+         *
+         * `fetch` хоёуланд нь `AbortError` шиддэг. Ялгахгүй бол
+         * ажилтан «Цуцлах» дарахад логт «терминал хариу өгсөнгүй» гэж
+         * бичигдэж, дараа нь жинхэнэ тасалдал хайхад хуурамч мөр
+         * хутгална.
+         */
+        if (signal?.aborted) throw new IsapiFaceCaptureCancelled();
+        throw e;
+      }
       const ct = (res.contentType ?? '').toLowerCase();
 
       /*
@@ -558,7 +608,7 @@ export class IsapiClient {
         if (!path) {
           throw new IsapiError(200, text, `Барьсан зургийн зам танигдсангүй: ${url}`);
         }
-        const img = await this.http.requestBytes('GET', path);
+        const img = await this.http.requestBytes('GET', path, { signal });
         if (img.status !== 200 || !img.bytes.length) {
           throw new IsapiError(img.status, '', 'Барьсан зургийг татаж чадсангүй');
         }
@@ -591,7 +641,7 @@ export class IsapiClient {
       const progress = Number(raw);
       if (progress >= 100) throw new IsapiFaceCaptureTimeout();
       // Терминалыг хүсэлтээр дарахгүй — хүн ойртоход хэдэн секунд хэрэгтэй.
-      await new Promise((r) => setTimeout(r, 1_500));
+      await sleep(1_500, signal);
     }
   }
 
@@ -685,7 +735,11 @@ export class IsapiClient {
    * ⚠ `FPID` нь `employeeNo` — `faceStatus` хайхдаа ижил түлхүүр
    * ашигладаг. Өөр утга бичвэл зураг орох ч «бүртгэгдээгүй» харагдана.
    */
-  private async putFace(employeeNo: string, jpeg: Buffer): Promise<void> {
+  private async putFace(
+    employeeNo: string,
+    jpeg: Buffer,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const attempts: { method: string; path: string }[] = [
       { method: 'POST', path: '/ISAPI/Intelligent/FDLib/FaceDataRecord?format=json' },
       { method: 'PUT', path: '/ISAPI/Intelligent/FDLib/FDSetUp?format=json' },
@@ -701,7 +755,7 @@ export class IsapiClient {
         body,
         { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
         // Зураг илгээх нь ~100КБ — сүлжээ удаан бол 15 сек хүрэлцэхгүй.
-        { timeoutMs: 30_000 },
+        { timeoutMs: 30_000, signal },
       );
       if (status === 200) {
         try {

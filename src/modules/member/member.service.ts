@@ -86,6 +86,7 @@ import {
 } from '../device/device-sync.service';
 import {
   DEVICE_GATEWAY,
+  FaceCaptureCancelledError,
   FaceCaptureTimeoutError,
   FaceRejectedError,
   MissingDeviceUserError,
@@ -550,14 +551,21 @@ export class MemberService {
 
     if (MemberService.faceCapture) {
       throw new ConflictException(
-        'Өөр гишүүний царай уншуулж байна — дуусахыг хүлээнэ үү',
+        `№${MemberService.faceCapture.memberNo}-ийн царай уншуулж байна — ` +
+          'дуусахыг хүлээх эсвэл тэр цонхон дээр «Цуцлах» дарна уу',
       );
     }
-    MemberService.faceCapture = m.memberNo;
+    /*
+     * Зогсоох бариул. Ажилтан «Цуцлах» дархад энэ дохио терминал руу
+     * явж буй хүсэлтийг ТАСАЛНА — эс бөгөөс түгжээ минут хүртэл
+     * суларч өгөхгүй бөгөөд дараагийн хүн хүлээнэ.
+     */
+    const abort = new AbortController();
+    MemberService.faceCapture = { memberNo: m.memberNo, abort };
 
     let info: FaceInfo;
     try {
-      info = await this.device.enrollFace(m.memberNo);
+      info = await this.device.enrollFace(m.memberNo, abort.signal);
     } catch (e) {
       /*
        * Гурван өөр шалтгааныг ГУРВАН өөр мессежээр ялгана. Бүгдийг
@@ -569,6 +577,12 @@ export class MemberService {
           'Энэ гишүүн терминал дээр бүртгэгдээгүй байна. ' +
             '«Терминал руу sync» дарж, бичигдсэний дараа дахин оролдоно уу.',
         );
+      }
+      // Ажилтан өөрөө зогсоосон — алдаа биш. Дэлгэц аль хэдийн
+      // хаагдсан тул энэ хариуг хэн ч харахгүй, гэхдээ 500 гэж
+      // бүртгэгдвэл логт хуурамч доголдол хуримтлагдана.
+      if (e instanceof FaceCaptureCancelledError) {
+        throw new BadRequestException(e.message);
       }
       // Хүн ирээгүй, эсвэл ирсэн ч зураг нь болоогүй — хоёулаа
       // «дахин оролдоно уу», зөвхөн зөвлөгөө нь өөр.
@@ -612,7 +626,32 @@ export class MemberService {
    * терминал дээр түгжээ тавих хэрэгтэй болно, гэхдээ одоогийн байдлаар
    * нэг л хуулбар ажилладаг.
    */
-  private static faceCapture: string | null = null;
+  private static faceCapture: {
+    memberNo: string;
+    abort: AbortController;
+  } | null = null;
+
+  /**
+   * Явж буй уншуулалтыг ЗОГСООНО.
+   *
+   * ★ ЯАГААД ТУСДАА ДУУДЛАГА ВЭ
+   *
+   * Браузер хүсэлтээ таслахад сервер тэр тухай МЭДЭХГҮЙ: терминалтай
+   * ярьсаар байх ба түгжээ минут хүртэл суларахгүй. Тэгвэл ажилтан
+   * цонхоо хааж дараагийн хүнийг оруулах гэтэл «өөр хүний царай
+   * уншуулж байна» гэж зогсоно.
+   *
+   * ⚠ ХЭНИЙХИЙГ ч зогсооно — `memberId` шалгахгүй. Терминал нэг тул
+   * «энэ хүнийхийг л зогсоо» гэсэн ойлголт утгагүй бөгөөд ажилтан
+   * өөр табаас цэвэрлэх боломжтой байх ёстой.
+   */
+  cancelFace(): { cancelled: boolean } {
+    const cur = MemberService.faceCapture;
+    if (!cur) return { cancelled: false };
+    cur.abort.abort();
+    this.log.log(`№${cur.memberNo} царай уншуулахыг цуцлав`);
+    return { cancelled: true };
+  }
 
   /** Төлбөрийн холбоосыг сэлгэх (алдагдсан гэж үзвэл). */
   async rotatePayToken(id: string): Promise<{ payToken: string }> {

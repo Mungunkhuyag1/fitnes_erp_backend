@@ -90,8 +90,8 @@ export class ReadOnlyDeviceGateway implements DeviceGateway {
    * Хаавал шинэ гишүүн бүрийн царайг терминалын цэсээр гараар бүртгэх
    * хэрэгтэй хэвээр үлдэнэ — энэ функцийн бүх утга алдагдана.
    */
-  enrollFace(employeeNo: string): Promise<FaceInfo> {
-    return this.inner.enrollFace(employeeNo);
+  enrollFace(employeeNo: string, signal?: AbortSignal): Promise<FaceInfo> {
+    return this.inner.enrollFace(employeeNo, signal);
   }
   info(): Promise<DeviceInfo> {
     return this.inner.info();

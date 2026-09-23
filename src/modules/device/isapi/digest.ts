@@ -118,6 +118,36 @@ export interface RequestOpts {
    * ерөнхийд нь биш, ЗӨВХӨН тэр дуудлагад.
    */
   timeoutMs?: number;
+
+  /**
+   * Гаднаас ЗОГСООХ дохио — ажилтан «Цуцлах» дарахад.
+   *
+   * ⚠ Хугацааны дохиотой ХАМТ ажиллана (`AbortSignal.any`). Зөвхөн
+   * нэгийг нь өгвөл нөгөө нь ажиллахаа болино: цуцлалт нэмснээр
+   * timeout алга болвол терминал унтарсан үед хүсэлт мөнхөд гацна.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * Гаднаас ирсэн цуцлалт болон хугацааг НЭГТГЭНЭ.
+ *
+ * ⚠ ХОЁУЛАНГ нь дамжуулна. Зөвхөн цуцлалтыг өгвөл timeout алга болж,
+ * терминал унтарсан үед хүсэлт мөнхөд гацна.
+ *
+ * ⚠ `AbortSignal.any` нь Node 20-оос эхэлсэн. Хуучин орчинд унахаас
+ * сэргийлж хугацаа руу уначихна — цуцлалт ажиллахгүй болохоос биш,
+ * системийн ажиллагаа зогсохгүй.
+ */
+function abortSignal(
+  opts: { timeoutMs?: number; signal?: AbortSignal },
+  fallbackMs: number,
+): AbortSignal {
+  const timeout = AbortSignal.timeout(opts.timeoutMs ?? fallbackMs);
+  if (!opts.signal) return timeout;
+  return typeof AbortSignal.any === 'function'
+    ? AbortSignal.any([timeout, opts.signal])
+    : timeout;
 }
 
 /**
@@ -229,9 +259,7 @@ export class DigestClient {
           ...(body ? { 'Content-Type': headers['Content-Type'] ?? 'application/json' } : {}),
         },
         body: payload,
-        signal: AbortSignal.timeout(
-          opts.timeoutMs ?? this.opts.timeoutMs ?? 15_000,
-        ),
+        signal: abortSignal(opts, this.opts.timeoutMs ?? 15_000),
       });
 
     // 1) Кэшлэсэн challenge байвал шууд креденшлтэй илгээнэ.
