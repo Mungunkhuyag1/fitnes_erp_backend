@@ -89,8 +89,8 @@ export function deviceValidity(m: PlanMember): {
 } {
   const created = new Date(m.createdAt);
   return {
-    begin: created,
-    end: m.accessEndsAt ? new Date(m.accessEndsAt) : created,
+    begin: clampDeviceDate(created),
+    end: clampDeviceDate(m.accessEndsAt ? new Date(m.accessEndsAt) : created),
     // Түр зогсоосон гишүүнд эрхийг унтраана (огноог нь хөндөхгүй).
     // Хугацаа дууссан гишүүнийг УНТРААХГҮЙ — дуусах огноо нь өөрөө
     // хаана. Терминал ч мөн адил `enable`-ыг үлдээдэг.
@@ -106,6 +106,50 @@ export function deviceValidity(m: PlanMember): {
     enable:
       m.status !== MemberStatus.SUSPENDED && m.status !== MemberStatus.CANCELLED,
   };
+}
+
+/*
+ * ★ ТЕРМИНАЛЫН ОГНООНЫ ХЯЗГААР
+ *
+ * Hikvision нь эрхийн хугацааг 32-бит цагаар хадгалдаг тул
+ * 2038 оны 1-р сарын 19-нд халина. Практикт firmware нь
+ * 2037-12-31-ээс хойшхыг ТАТГАЛЗДАГ:
+ *
+ *     statusCode 6 · Invalid Content · badJsonContent · errorMsg: endTime
+ *
+ * Энэ нь бодит газар дээр гарсан: терминалаас импортлосон 10 жилийн
+ * эрхтэй ажилтан (№91991499, дуусах 2037-12-31) дээр НЭГ хоног
+ * нэмэхэд 2038-01-01 болж, бичилт бүрмөсөн унасан. Гишүүн WinFit
+ * дээр «идэвхтэй» харагдах ч терминал хуучин утгаараа үлдэнэ —
+ * чимээгүй зөрүү.
+ *
+ * ⚠ ХЯЗГААРЫГ ЭНД тавих нь чухал, ISAPI клиент дотор БИШ. Тулгалт
+ * ба төлөвлөгөө хоёр ч мөн энэ функцийг дууддаг: клиент дотор
+ * хязгаарлавал WinFit «2038-01-01» гэж үзсээр байх ба тулгалт тэр
+ * гишүүнийг МӨНХӨД «зөрүүтэй» гэж заана.
+ *
+ * ⚠ UTC-гээр тогтоов. Сервер UTC дээр ажилладаг ч терминал руу
+ * ОРОН НУТГИЙН цагаар (UB, +08) бичигддэг: 2037-12-31T00:00:00Z нь
+ * тэнд 2037-12-31T08:00:00 болно — хязгаарын дотор. Хэрэв 23:59:59Z
+ * гэж тавибал UB дээр 2038-01-01 болж дахин унана.
+ */
+const DEVICE_MAX_MS = Date.UTC(2037, 11, 31, 0, 0, 0);
+
+/**
+ * Hikvision-ий хамгийн эрт хүлээж авдаг огноо.
+ *
+ * Терминалаас импортлосон зарим бичлэг 1999 оны огноотой байв.
+ * Эдгээрийг зарим firmware мөн татгалздаг.
+ */
+const DEVICE_MIN_MS = Date.UTC(2000, 0, 1, 0, 0, 0);
+
+/** Терминал хүлээж авах муж руу оруулна. */
+export function clampDeviceDate(d: Date): Date {
+  const t = d.getTime();
+  if (Number.isNaN(t)) return new Date(DEVICE_MIN_MS);
+  if (t > DEVICE_MAX_MS) return new Date(DEVICE_MAX_MS);
+  if (t < DEVICE_MIN_MS) return new Date(DEVICE_MIN_MS);
+  return d;
 }
 
 /** `2026-05-28` — цаггүй, бүсийн будлианаас ангид. */
