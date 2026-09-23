@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -128,6 +129,30 @@ export class AuthService {
     // `view()`-ээр буцаана — нэвтрэх хариутай ЯГ ижил бүтэц, тиймээс
     // клиент тал хоёр өөр хэлбэр зохицуулах шаардлагагүй.
     return this.view(user);
+  }
+
+  /**
+   * Нууц үгээ ДАХИН баталгаажуулах — эргэлт буцалтгүй үйлдлийн өмнө.
+   *
+   * ★ ЯАГААД ТОКЕН ХАНГАЛТГҮЙ ВЭ
+   *
+   * Нэвтэрсэн сесс нь «энэ хүн өглөө нэвтэрсэн» гэдгийг л батална.
+   * Ресепшний компьютер өдөржин нээлттэй, ар дээр нь хэн ч сууж
+   * болно. «Бүх гишүүнийг терминал руу дахин бичих» шиг үйлдэл
+   * санамсаргүй эсвэл өөр хүний гараар хийгдвэл 400 гишүүнийг
+   * хөндөнө.
+   *
+   * ⚠ Аудитад ямар ч мөр бичихгүй: энэ нь зөвхөн шалгалт. Жинхэнэ
+   * үйлдлийг нь дуудагч тал бүртгэнэ.
+   */
+  async assertPassword(userId: string, password: string): Promise<void> {
+    const user = await this.staff.findOne({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException();
+    if (!password || !(await this.safeVerify(user.passwordHash, password))) {
+      // ⚠ 401 БИШ, 403: 401 бол dashboard-ын `api.ts` нь токен
+      // хугацаа дууссан гэж үзээд refresh хийгээд дахин илгээнэ.
+      throw new ForbiddenException('Нууц үг буруу байна');
+    }
   }
 
   async changePassword(

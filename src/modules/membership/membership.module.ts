@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { AccessModule } from '../access/access.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LoyaltyModule } from '../loyalty/loyalty.module';
@@ -16,6 +17,8 @@ import { SyncJobsController } from './sync-jobs.controller';
   imports: [
     // Ирц татах товч `AcsEventPoller`-ээр дамжина.
     AccessModule,
+    // «Бүгдийг дахин бичих» нь нууц үг дахин шалгадаг.
+    AuthModule,
     TypeOrmModule.forFeature([Membership, Member, Package]),
     LoyaltyModule,
     MailModule,

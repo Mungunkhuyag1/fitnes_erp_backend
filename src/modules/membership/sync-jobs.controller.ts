@@ -10,6 +10,7 @@ import { MemberService } from '../member/member.service';
 import { ReconcileService } from '../loyalty/reconcile.service';
 import { ReminderService } from '../loyalty/reminder.service';
 import { AuditService } from '../audit/audit.service';
+import { AuthService } from '../auth/auth.service';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { MembershipScheduler } from './membership.scheduler';
 
@@ -34,6 +35,8 @@ export class SyncJobsController {
     private readonly acsPoller: AcsEventPoller,
     private readonly deviceAuditSvc: DeviceAuditService,
     private readonly audit: AuditService,
+    // Нууц үг дахин шалгахад — эргэлт буцалтгүй үйлдлийн өмнө.
+    private readonly auth: AuthService,
   ) {}
 
 
@@ -125,8 +128,30 @@ export class SyncJobsController {
       'үүсэх тул ХҮНД ажил — дэлгэц дээр баталгаажуулна. Цуцлагдсан гишүүнийг ' +
       'оруулахгүй.',
   })
-  resyncAll() {
-    return this.members.resyncAll();
+  async resyncAll(
+    @Body() body: { password?: string },
+    @CurrentUser() user: AuthUser,
+  ) {
+    /*
+     * ★ НУУЦ ҮГЭЭ ДАХИН ОРУУЛНА
+     *
+     * Нэвтэрсэн сесс нь «энэ хүн өглөө нэвтэрсэн» гэдгийг л батална.
+     * Ресепшний компьютер өдөржин нээлттэй байдаг. Энэ товч нь 400
+     * гишүүнийг терминал руу дарж бичих тул санамсаргүй эсвэл өөр
+     * хүний гараар дарагдах ёсгүй.
+     */
+    await this.auth.assertPassword(user.id, body?.password ?? '');
+
+    const r = await this.members.resyncAll();
+    // ⚠ Аудитад ЗААВАЛ бичнэ: терминал дээрх бүх бичлэг хөндөгдөх тул
+    // дараа нь «хэн, хэзээ» гэдгийг тогтоох боломжтой байх ёстой.
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'sync.resyncAll',
+      entity: 'member',
+      after: { members: r.members, queued: r.queued },
+    });
+    return r;
   }
 
   @Post('device-reconcile')

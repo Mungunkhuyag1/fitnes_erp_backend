@@ -321,28 +321,42 @@ export class IsapiClient {
     doorNo?: number;
     planTemplateNo?: string;
   }): Promise<'created' | 'updated'> {
-    const payload = {
-      UserInfo: {
-        employeeNo: input.employeeNo,
-        name: input.name,
-        userType: 'normal',
-        Valid: {
-          enable: input.enable,
-          beginTime: input.beginTime,
-          endTime: input.endTime,
-          timeType: 'local',
-        },
-        doorRight: String(input.doorNo ?? 1),
-        RightPlan: [
-          {
-            doorNo: input.doorNo ?? 1,
-            planTemplateNo: input.planTemplateNo ?? '1',
-          },
-        ],
+    const existing = await this.searchUser(input.employeeNo);
+
+    /*
+     * ★ WinFit ЭЗЭМШДЭГ ТАЛБАРУУД — зөвхөн эдгээр нь дарагдана.
+     *
+     * Нэр нь гишүүний бүртгэлээс, хугацаа нь ТӨЛБӨРӨӨС гардаг тул
+     * эдгээрийн эх сурвалж WinFit (docs/03 §5.1).
+     */
+    const owned = {
+      employeeNo: input.employeeNo,
+      name: input.name,
+      Valid: {
+        enable: input.enable,
+        beginTime: input.beginTime,
+        endTime: input.endTime,
+        timeType: 'local',
       },
     };
 
-    const existing = await this.searchUser(input.employeeNo);
+    const payload = existing
+      ? { UserInfo: { ...this.preserved(existing), ...owned } }
+      : {
+          // ШИНЭ хэрэглэгч — хадгалах зүйл байхгүй тул анхдагчаар.
+          UserInfo: {
+            ...owned,
+            userType: 'normal',
+            doorRight: String(input.doorNo ?? 1),
+            RightPlan: [
+              {
+                doorNo: input.doorNo ?? 1,
+                planTemplateNo: input.planTemplateNo ?? '1',
+              },
+            ],
+          },
+        };
+
     const path = existing
       ? '/ISAPI/AccessControl/UserInfo/Modify?format=json'
       : '/ISAPI/AccessControl/UserInfo/Record?format=json';
@@ -352,6 +366,74 @@ export class IsapiClient {
     if (status !== 200) throw new IsapiError(status, text);
     this.assertOk(text);
     return existing ? 'updated' : 'created';
+  }
+
+  /**
+   * Терминал дээр ХЭВЭЭР үлдэх ёстой талбарууд.
+   *
+   * ★ ЯАГААД ЭНЭ ЧУХАЛ ВЭ
+   *
+   * `Modify` нь бүтэн бичлэг хүлээдэг: илгээгээгүй талбар нь
+   * анхдагч утгаараа ДАРАГДАНА. Урьд нь `userType: 'normal'` гэж
+   * үргэлж илгээдэг байв — ингэснээр:
+   *
+   *   • терминал дээрх 3 АДМИН (№1, №17, №91991499) энгийн хэрэглэгч
+   *     болж, төхөөрөмжийн цэс рүү орох эрхээ АЛДАНА
+   *   • 3 `visitor` хэрэглэгч `normal` болно
+   *
+   * Тэднийг буцаахын тулд хүн терминал дээр гараар засах хэрэгтэй —
+   * харин үүнийг мэдэхийн тулд эхлээд эвдэрснийг анзаарах хэрэгтэй
+   * бөгөөд энэ нь ХЭЗЭЭ Ч мэдэгдэхгүй өнгөрч болно.
+   *
+   * ⚠ Цагаан жагсаалт ашиглав, бүтнээр нь хуулаагүй: `numOfFace`,
+   * `numOfCard`, `checkUser` зэрэг нь ЗӨВХӨН УНШИХ талбарууд бөгөөд
+   * буцааж илгээвэл зарим firmware татгалздаг.
+   */
+  private preserved(existing: Json): Json {
+    const KEEP = [
+      // Эрхийн түвшин — хамгийн эмзэг нь. Энэ л админыг «унагаадаг».
+      'userType',
+      'localUIRight',
+      // Бүлэг
+      'groupId',
+      'belongGroup',
+      // Хаалганы эрх ба хуваарь — заалан дээр гараар тохируулсан
+      // байж болно (жишээ нь ажилтанд өөр цагийн загвар).
+      'doorRight',
+      'RightPlan',
+      // Хувь хүний мэдээлэл — WinFit терминал руу бичдэггүй.
+      'gender',
+      'password',
+      'localPassword',
+      'PersonInfoExtends',
+      // Нэвтрэх горим, хугацааны тохиргоо
+      'userVerifyMode',
+      'maxOpenDoorTime',
+      'openDelayEnabled',
+      'closeDelayEnabled',
+      'roomNumber',
+      'floorNumber',
+      'callNumber',
+    ];
+
+    const out: Json = {};
+    for (const k of KEEP) {
+      if (existing[k] !== undefined && existing[k] !== null) out[k] = existing[k];
+    }
+
+    /*
+     * Админ/зочныг хөндөхөд ИЛ анхааруулна. Хамгаалалт ажилласан ч
+     * тэр хүмүүсийг WinFit бичих гэж байгаа нь өөрөө анхаарал татах
+     * зүйл: ихэвчлэн тэд гишүүн биш, ажилтан байдаг.
+     */
+    const type = String(existing.userType ?? 'normal');
+    if (type !== 'normal') {
+      this.log.warn(
+        `№${String(existing.employeeNo)} нь «${type}» төрөлтэй — ` +
+          'түүнийг хэвээр үлдээв.',
+      );
+    }
+    return out;
   }
 
   /** Зөвхөн хугацаа/идэвхийг өөрчлөх. Хэрэглэгч байхгүй бол алдаа. */
@@ -372,8 +454,15 @@ export class IsapiClient {
       '/ISAPI/AccessControl/UserInfo/Modify?format=json',
       JSON.stringify({
         UserInfo: {
+          /*
+           * ⚠ Modify нь бүтэн обьект хүлээдэг: илгээгээгүй талбар
+           * анхдагчаараа ДАРАГДАНА. Тиймээс терминал дээрх утгуудыг
+           * (эрхийн түвшин, хаалганы хуваарь, хүйс) буцааж илгээнэ —
+           * эс бөгөөс эрх сунгах бүрд админ нь энгийн хэрэглэгч болно.
+           */
+          ...this.preserved(existing),
           employeeNo: input.employeeNo,
-          // ⚠ Modify нь бүтэн обьект хүлээдэг — `name` дутвал устгагдаж болно.
+          // `name` дутвал устгагдаж болно.
           name: input.name,
           Valid: {
             enable: input.enable,
@@ -381,13 +470,6 @@ export class IsapiClient {
             endTime: input.endTime,
             timeType: 'local',
           },
-          doorRight: String(input.doorNo ?? 1),
-          RightPlan: [
-            {
-              doorNo: input.doorNo ?? 1,
-              planTemplateNo: input.planTemplateNo ?? '1',
-            },
-          ],
         },
       }),
     );
