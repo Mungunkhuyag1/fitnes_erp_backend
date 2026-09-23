@@ -75,6 +75,31 @@ export class SyncJobsController {
     return r;
   }
 
+  /**
+   * Дутуу үлдсэн ирцийн ЗУРГИЙГ нөхөх.
+   *
+   * Цаг тутам өөрөө ажилладаг (сүүлийн 3 хоног). Энэ товч нь илүү урт
+   * хугацааг гараар нөхөхөд.
+   *
+   * ⚠ Терминал хуучин зургаа дарж бичсэн бол олдохгүй — `filled` нь
+   * `0` гарах нь эвдрэл БИШ, тэр зургууд байхгүй болсон гэсэн үг.
+   */
+  @Post('picture-backfill')
+  @ApiOperation({ summary: 'Ирцийн дутуу зургийг терминалаас нөхөх' })
+  async pictureBackfill(@Body() body: { days?: number; windows?: number }) {
+    const days = Number(body.days ?? 3);
+    if (!Number.isInteger(days) || days < 1 || days > 30) {
+      throw new BadRequestException('days нь 1–30 хооронд бүхэл тоо байна');
+    }
+    // Цонх бүр терминал руу нэг хайлт — хэт олноор нэг дуудлагад
+    // явуулбал хүсэлт timeout болно.
+    const windows = Number(body.windows ?? 24);
+    if (!Number.isInteger(windows) || windows < 1 || windows > 72) {
+      throw new BadRequestException('windows нь 1–72 хооронд бүхэл тоо байна');
+    }
+    return this.acsPoller.backfillPictures(days, windows);
+  }
+
   @Post('expire')
   @ApiOperation({ summary: 'Хугацаа дууссан гишүүдийг тэмдэглэх' })
   async expire() {

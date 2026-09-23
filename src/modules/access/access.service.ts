@@ -151,6 +151,47 @@ export class AccessService {
     return AccessReason.OK;
   }
 
+  /**
+   * Зураггүй үлдсэн уншуулалтын ЦАГИЙН ЦОНХнууд.
+   *
+   * ★ ЯАГААД ЦАГААР БҮЛЭГЛЭВ
+   *
+   * Эвент бүрд тусад нь терминал руу хандвал 50 зурагт 50 хүсэлт
+   * болно. `AcsEvent` нь цонхоор хайдаг тул нэг цагийн цонх нэг
+   * дуудлагаар тэр цагийн БҮХ зургийг авчирна.
+   *
+   * ⚠ Сүүлийн 2 минутыг ХАСНА: тэр эвентүүдийг 5 минут тутамын татагч
+   * дөнгөж нөхөх гэж байгаа. Зэрэг мөргөлдвөл терминал руу давхар
+   * хүсэлт явна.
+   */
+  async hoursMissingPictures(
+    days: number,
+    limit: number,
+  ): Promise<{ hour: Date; count: number }[]> {
+    return this.repo.query(
+      `SELECT date_trunc('hour', event_at) AS hour, count(*)::int AS count
+         FROM access_events
+        WHERE picture_path IS NULL
+          AND event_at >= now() - ($1 || ' days')::interval
+          AND event_at <= now() - interval '2 minutes'
+        GROUP BY 1
+        ORDER BY 1 DESC
+        LIMIT $2`,
+      [days, limit],
+    );
+  }
+
+  /** Заасан хоногт зураггүй хэдэн уншуулалт байна вэ. */
+  async countMissingPictures(days: number): Promise<number> {
+    const [r] = await this.repo.query<{ n: string }[]>(
+      `SELECT count(*) AS n FROM access_events
+        WHERE picture_path IS NULL
+          AND event_at >= now() - ($1 || ' days')::interval`,
+      [days],
+    );
+    return Number(r?.n ?? 0);
+  }
+
   private dedupeKey(i: IngestInput): string {
     // Терминалын дугаар байвал тэр хамгийн найдвартай.
     if (i.eventSeq != null) return `${i.deviceId ?? 'x'}:${i.eventSeq}`;
