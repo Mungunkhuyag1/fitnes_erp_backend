@@ -112,10 +112,47 @@ ok(
   )?.equals(visible) === true,
 );
 
+/*
+ * ★ НӨӨЦ ЗАМ — зааг танигдаагүй ч JPEG-ийг ГАРЫН ҮСГЭЭР нь олно.
+ *
+ * Бодит терминал `boundary=mime_boundary` гэж хашилтгүй илгээдэг ба
+ * firmware бүр өөр хэлбэртэй. Зааг таних нь бүтэлгүйтвэл зураг
+ * АЛДАГДАХ ёсгүй — `FF D8 FF … FF D9` нь хаана ч ижил.
+ */
 ok(
-  'boundary байхгүй бол null',
-  pickImagePart(multipart(B, [part('Content-Type: image/jpeg', visible)]), 'multipart/form-data') ===
-    null,
+  'boundary-гүй ч JPEG-ийг олно (нөөц зам)',
+  pickImagePart(
+    multipart(B, [part('Content-Type: image/jpeg', visible)]),
+    'multipart/form-data',
+  )?.equals(visible) === true,
+);
+
+ok(
+  'хашилтгүй, зайгүй boundary (бодит терминалынх)',
+  pickImagePart(
+    multipart('mime_boundary', [part('Content-Type: image/jpeg', visible)]),
+    'multipart/form-data;boundary=mime_boundary',
+  )?.equals(visible) === true,
+);
+
+/*
+ * ⚠ Hikvision-ий зарим firmware толгой/биеийг ганц `\n\n`-ээр
+ * тусгаарладаг (RFC нь `\r\n\r\n` гэж заасан ч). Зөвхөн эхнийхийг
+ * хайвал тэр төхөөрөмж дээр зураг ХЭЗЭЭ Ч олдохгүй.
+ */
+function lfPart(headers: string, bodyBuf: Buffer): Buffer {
+  return Buffer.concat([
+    Buffer.from(`\n${headers}\n\n`, 'utf8'),
+    bodyBuf,
+    Buffer.from('\n', 'utf8'),
+  ]);
+}
+ok(
+  'LF-only тусгаарлагч',
+  pickImagePart(
+    multipart(B, [lfPart('Content-Type: image/jpeg', visible)]),
+    `multipart/form-data; boundary=${B}`,
+  )?.equals(visible) === true,
 );
 
 ok(
@@ -123,6 +160,14 @@ ok(
   pickImagePart(
     multipart(B, [part('Content-Type: application/json', Buffer.from('{}', 'utf8'))]),
     `multipart/form-data; boundary=${B}`,
+  ) === null,
+);
+
+ok(
+  'XML хариу дээр null (JPEG гарын үсэггүй)',
+  pickImagePart(
+    Buffer.from('<?xml version="1.0"?><CaptureFaceData/>', 'utf8'),
+    'application/xml',
   ) === null,
 );
 

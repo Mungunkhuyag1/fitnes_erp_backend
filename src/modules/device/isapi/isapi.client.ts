@@ -137,34 +137,76 @@ export function captureBody(dataType: string | null): string {
  * байрладаг. Толгойгүй бол JPEG-ийн гарын үсгээр (`FF D8 FF`) таана.
  */
 export function pickImagePart(body: Buffer, contentType: string): Buffer | null {
-  const m = /boundary="?([^";]+)"?/i.exec(contentType);
-  if (!m) return null;
-  const sep = Buffer.from(`--${m[1]}`, 'utf8');
+  const m = /boundary="?([^";,\s]+)"?/i.exec(contentType);
+  if (m) {
+    const sep = Buffer.from(`--${m[1]}`, 'utf8');
+    const parts: Buffer[] = [];
+    let from = body.indexOf(sep);
+    while (from !== -1) {
+      const next = body.indexOf(sep, from + sep.length);
+      if (next === -1) break;
+      parts.push(body.subarray(from + sep.length, next));
+      from = next;
+    }
 
-  const parts: Buffer[] = [];
-  let from = body.indexOf(sep);
-  while (from !== -1) {
-    const next = body.indexOf(sep, from + sep.length);
-    if (next === -1) break;
-    parts.push(body.subarray(from + sep.length, next));
-    from = next;
+    for (const part of parts) {
+      /*
+       * ⚠ Толгой/биеийг тусгаарлагч нь firmware бүрд ЯЛГААТАЙ.
+       *
+       * RFC нь `\r\n\r\n` гэж заасан ч Hikvision-ий зарим хувилбар
+       * ганц `\n\n` ашигладаг. Зөвхөн эхнийхийг хайвал тэр
+       * төхөөрөмж дээр зураг ХЭЗЭЭ Ч олдохгүй — алдаа нь чимээгүй,
+       * «царай олдсонгүй» гэсэн буруу шалтгаан руу хөтөлнө.
+       */
+      let split = part.indexOf('\r\n\r\n');
+      let skip = 4;
+      if (split === -1) {
+        split = part.indexOf('\n\n');
+        skip = 2;
+      }
+      if (split === -1) continue;
+
+      const head = part.subarray(0, split).toString('utf8').toLowerCase();
+      let data = part.subarray(split + skip);
+      // Төгсгөлийн мөр таслагч нь заагийнх — зурагт хамаарахгүй.
+      while (
+        data.length &&
+        (data[data.length - 1] === 0x0a || data[data.length - 1] === 0x0d)
+      ) {
+        data = data.subarray(0, data.length - 1);
+      }
+      if ((head.includes('image/') || isJpeg(data)) && data.length) return data;
+    }
   }
 
-  for (const part of parts) {
-    // Толгой ба биеийг хоосон мөр тусгаарлана.
-    const split = part.indexOf('\r\n\r\n');
-    if (split === -1) continue;
-    const head = part.subarray(0, split).toString('utf8').toLowerCase();
-    // ⚠ Төгсгөлийн `\r\n` нь заагийнх — зурагт хамаарахгүй.
-    let data = part.subarray(split + 4);
-    if (data.length >= 2 && data[data.length - 2] === 0x0d) {
-      data = data.subarray(0, data.length - 2);
+  /*
+   * ★ НӨӨЦ ЗАМ — JPEG-ийг ГАРЫН ҮСГЭЭР нь олно.
+   *
+   * Зааг танигдаагүй, толгой нь хүлээгдээгүй хэлбэртэй, эсвэл
+   * `Content-Type` огт ирээгүй байж болно. JPEG нь `FF D8 FF`-ээр
+   * эхэлж `FF D9`-ээр дуусдаг тул тэднийг хайхад хангалттай.
+   *
+   * ⚠ Энэ нь ЗӨВХӨН нөөц: зааг зөв ажиллаж байвал дээрх нь илүү
+   * найдвартай (хоёр зургаас ЗӨВ-ийг нь сонгоно). Энд эхний
+   * (харагдах гэрлийн) зургийг авна.
+   */
+  const soi = indexOfJpeg(body);
+  if (soi === -1) return null;
+  for (let i = body.length - 1; i > soi; i--) {
+    if (body[i - 1] === 0xff && body[i] === 0xd9) {
+      return body.subarray(soi, i + 1);
     }
-    const isJpeg =
-      data.length > 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
-    if ((head.includes('image/') || isJpeg) && data.length) return data;
   }
   return null;
+}
+
+/** `FF D8 FF` — JPEG-ийн эхлэл. */
+function isJpeg(b: Buffer): boolean {
+  return b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+}
+
+function indexOfJpeg(b: Buffer): number {
+  return b.indexOf(Buffer.from([0xff, 0xd8, 0xff]));
 }
 
 /**
@@ -562,8 +604,25 @@ export class IsapiClient {
     waitMs = 60_000,
     signal?: AbortSignal,
   ): Promise<FaceInfo> {
+    /*
+     * ★ ӨМНӨ НЬ ЦАРАЙТАЙ БАЙСАН УУ
+     *
+     * Hikvision-д «нэмэх» (`FaceDataRecord`) ба «солих» (`FDSetUp`) нь
+     * ӨӨР endpoint. Байгаа дээр нь нэмэх гэвэл татгалзана, байхгүй
+     * дээр нь солих гэвэл мөн адил. Урьдчилж мэдвэл ЗӨВ-ийг нь эхэлж
+     * оролдоно — эс бөгөөс дахин уншуулах бүрд нэг дэмий алдаа гарна.
+     *
+     * ⚠ Барихын ӨМНӨ асууна: барьсны дараа бол хүн терминалын өмнө
+     * зогсож байхад нэмэлт секунд хүлээлгэх болно.
+     */
+    const before = (await this.faceStatus([employeeNo]))[employeeNo];
+    const replace = before?.enrolled === true;
+    if (replace) {
+      this.log.log(`№${employeeNo} царайтай байна — ШИНЭЭР солино`);
+    }
+
     const jpeg = await this.captureFace(waitMs, signal);
-    await this.putFace(employeeNo, jpeg, signal);
+    await this.putFace(employeeNo, jpeg, signal, replace);
     const status = await this.faceStatus([employeeNo]);
     const info = status[employeeNo] ?? { enrolled: false, path: null };
     if (!info.enrolled) {
@@ -686,7 +745,20 @@ export class IsapiClient {
         if (ct.startsWith('image/') && res.bytes.length) return res.bytes;
         if (ct.includes('multipart')) {
           const img = pickImagePart(res.bytes, ct);
-          if (img) return img;
+          if (img) {
+            this.log.log(`Царай барив: ${img.length} байт`);
+            return img;
+          }
+          /*
+           * ⚠ Зураг ирсэн ч ЗАДРААГҮЙ — энэ нь бидний алдаа, терминал
+           * ажилласан. Чимээгүй өнгөрвөл доор «танихгүй хариу» гэсэн
+           * буруу дүгнэлт рүү хөтөлнө. Эхний 80 байтыг hex-ээр
+           * үлдээвэл хэлбэрийг нь дараа таних боломжтой.
+           */
+          this.log.warn(
+            `Multipart задраагүй (${res.bytes.length} байт, ${ct}): ` +
+              res.bytes.subarray(0, 80).toString('hex'),
+          );
         }
       }
 
@@ -839,11 +911,18 @@ export class IsapiClient {
     employeeNo: string,
     jpeg: Buffer,
     signal?: AbortSignal,
+    replace = false,
   ): Promise<void> {
-    const attempts: { method: string; path: string }[] = [
-      { method: 'POST', path: '/ISAPI/Intelligent/FDLib/FaceDataRecord?format=json' },
-      { method: 'PUT', path: '/ISAPI/Intelligent/FDLib/FDSetUp?format=json' },
-    ];
+    const ADD = {
+      method: 'POST',
+      path: '/ISAPI/Intelligent/FDLib/FaceDataRecord?format=json',
+    };
+    const MODIFY = {
+      method: 'PUT',
+      path: '/ISAPI/Intelligent/FDLib/FDSetUp?format=json',
+    };
+    // Байгаа дээр нь «солих», байхгүй дээр нь «нэмэх» нь түрүүлнэ.
+    const attempts = replace ? [MODIFY, ADD] : [ADD, MODIFY];
 
     let last: IsapiError | null = null;
     for (const a of attempts) {
@@ -868,8 +947,36 @@ export class IsapiClient {
       } else {
         last = new IsapiError(status, text);
       }
-      this.log.debug(`${a.path} бүтсэнгүй (${status}) — дараагийнхыг оролдоно`);
+      /*
+       * ⚠ `warn`, `debug` БИШ. Production дээр Nest нь `debug`-ийг
+       * ХАЯДАГ тул царай бичигдээгүй ЖИНХЭНЭ шалтгаан (терминалын
+       * буцаасан код) лог дээр огт гарахгүй байв. Дэлгэц дээр
+       * «бүртгэгдсэнгүй» гэж л харагдана.
+       */
+      this.log.warn(
+        `${a.path} бүтсэнгүй (${status}): ${text.slice(0, 250)}`,
+      );
     }
+
+    /*
+     * ★ ИЖИЛ ЦАРАЙ ӨӨР ХҮН ДЭЭР БҮРТГЭЛТЭЙ БАЙВАЛ
+     *
+     * Терминал нэг царайг хоёр хүн дээр бүртгэхийг зөвшөөрдөггүй —
+     * эс бөгөөс хаалга хэнийг нэвтрүүлснээ мэдэхгүй болно. Тэр үед
+     * танихад бэрх код буцаадаг тул ажилтанд ойлгомжтой болгоно.
+     *
+     * ⚠ Хамгийн олон тохиолдох нөхцөл: туршилтын үед нэг хүн өөрийн
+     * царайгаа хэд хэдэн гишүүн дээр уншуулах гэж оролдох.
+     */
+    const body = last?.body ?? '';
+    if (/duplicat|already ?exist|exist.*face|face.*exist/i.test(body)) {
+      throw new IsapiFaceRejected(
+        'Энэ царай өөр гишүүн дээр аль хэдийн бүртгэгдсэн байна. ' +
+          'Терминал нэг царайг хоёр хүн дээр бүртгэдэггүй — эхлээд ' +
+          'нөгөө гишүүнээс нь салгана уу.',
+      );
+    }
+
     throw last ?? new IsapiError(0, '', 'Царай бичигдсэнгүй');
   }
 
