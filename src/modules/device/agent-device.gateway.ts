@@ -31,6 +31,9 @@ export class AgentDeviceGateway implements DeviceGateway {
   faceStatus(_employeeNos: string[]): Promise<Record<string, FaceInfo>> {
     this.notReady();
   }
+  enrollFace(_employeeNo: string): Promise<FaceInfo> {
+    this.notReady();
+  }
   listUsers(): Promise<DeviceUserRow[]> {
     this.notReady();
   }

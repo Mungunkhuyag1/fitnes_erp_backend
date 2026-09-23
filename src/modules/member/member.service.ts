@@ -1,9 +1,11 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -82,6 +84,14 @@ import {
   DEVICE_TOPICS,
   memberGroup,
 } from '../device/device-sync.service';
+import {
+  DEVICE_GATEWAY,
+  FaceCaptureTimeoutError,
+  FaceRejectedError,
+  MissingDeviceUserError,
+  type DeviceGateway,
+  type FaceInfo,
+} from '../device/device.gateway';
 import {
   LOYALTY_TOPICS,
   loyaltyGroup,
@@ -185,6 +195,9 @@ export class MemberService {
     private readonly ds: DataSource,
     private readonly config: ConfigService,
     private readonly outbox: OutboxService,
+    // Царай уншуулах нь ГАРААР эхэлдэг синхрон үйлдэл тул outbox-оор
+    // биш, терминалтай шууд ярина.
+    @Inject(DEVICE_GATEWAY) private readonly device: DeviceGateway,
   ) {}
 
   private get tz(): string {
@@ -505,6 +518,101 @@ export class MemberService {
     });
     return { ok: true as const };
   }
+
+  /**
+   * Терминал дээр ЦАРАЙ УНШУУЛАХ — дэлгэцээс эхлүүлнэ.
+   *
+   * ★ ЯАГААД ХЭРЭГТЭЙ ВЭ
+   *
+   * Царайг урьд нь зөвхөн терминалын дэлгэцээс гараар бүртгэдэг байв:
+   * админ ПИН оруулж, цэсээр орж, хүнийг дугаараар нь олж байж уншуулна.
+   * Ресепшн шинэ гишүүн бүрт үүнийг хийх ёстой бөгөөд ихэнхдээ мартагдаж,
+   * хүн маргааш хаалган дээр зогсдог. Энэ нь тэр алхмыг НЭГ ТОВЧ болгоно.
+   *
+   * ★ ЯАГААД OUTBOX БИШ ВЭ
+   *
+   * Outbox нь «хожим хийгдэх» ажлын хэрэгсэл. Энэ үйлдэл нь ХҮН
+   * терминалын өмнө зогсож байхад л утгатай — 5 минутын дараа давтвал
+   * хэн ч байхгүй газар зураг барина. Тиймээс шууд, синхроноор.
+   *
+   * ⚠ НЭГ ЗЭРЭГ НЭГ Л УДАА. Терминалын камер нэг. Хоёр ажилтан зэрэг
+   * дарвал хоёр дахь нь эхнийхийнх нь барьсан царайг өөр хүний нэр
+   * дээр бичиж мэднэ — эндээс хамгаална.
+   */
+  async enrollFace(id: string): Promise<MemberDetail> {
+    const m = await this.find(id);
+
+    if (m.status === MemberStatus.CANCELLED) {
+      throw new BadRequestException(
+        'Цуцалсан гишүүний царай уншуулахгүй — эхлээд эрхийг сэргээнэ үү',
+      );
+    }
+
+    if (MemberService.faceCapture) {
+      throw new ConflictException(
+        'Өөр гишүүний царай уншуулж байна — дуусахыг хүлээнэ үү',
+      );
+    }
+    MemberService.faceCapture = m.memberNo;
+
+    let info: FaceInfo;
+    try {
+      info = await this.device.enrollFace(m.memberNo);
+    } catch (e) {
+      /*
+       * Гурван өөр шалтгааныг ГУРВАН өөр мессежээр ялгана. Бүгдийг
+       * «алдаа гарлаа» болговол ажилтан юу хийхээ мэдэхгүй: хүнийг
+       * дахин дуудах уу, терминал руу гүйх үү, эсвэл synс хүлээх үү.
+       */
+      if (e instanceof MissingDeviceUserError) {
+        throw new ConflictException(
+          'Энэ гишүүн терминал дээр бүртгэгдээгүй байна. ' +
+            '«Терминал руу sync» дарж, бичигдсэний дараа дахин оролдоно уу.',
+        );
+      }
+      // Хүн ирээгүй, эсвэл ирсэн ч зураг нь болоогүй — хоёулаа
+      // «дахин оролдоно уу», зөвхөн зөвлөгөө нь өөр.
+      if (
+        e instanceof FaceCaptureTimeoutError ||
+        e instanceof FaceRejectedError
+      ) {
+        throw new BadRequestException(e.message);
+      }
+      this.log.warn(
+        `№${m.memberNo} царай уншуулж чадсангүй: ${(e as Error).message}`,
+      );
+      throw new ServiceUnavailableException(
+        `Терминалтай холбогдож чадсангүй: ${(e as Error).message}`,
+      );
+    } finally {
+      MemberService.faceCapture = null;
+    }
+
+    /*
+     * Тэр даруй тэмдэглэнэ. `FaceWatchService` 30 секунд тутам ч бас
+     * шалгадаг ч ажилтан товч дарсныхаа дараа үр дүнг НЭН ДАРУЙ харах
+     * ёстой — эс бөгөөс «болсон уу?» гэж дахин дарна.
+     */
+    const now = new Date();
+    await this.repo.update(m.id, {
+      faceEnrolled: true,
+      faceEnrolledAt: now,
+      // Зам нь терминалын ДОТООД зам — байт нь тэндээ үлдэнэ.
+      ...(info.path ? { photoPath: info.path, photoAt: now } : {}),
+    });
+    this.log.log(`№${m.memberNo} (${m.name}) царай уншуулав`);
+    return this.detail(id);
+  }
+
+  /**
+   * Одоо хэний царай уншуулж байгаа вэ (`null` = сул).
+   *
+   * ⚠ `static` — нэг процесст нэг л утга. Хэрэв backend-ийг олон
+   * хуулбараар ажиллуулбал энэ хамгаалалт ажиллахаа болино. Тэр үед
+   * терминал дээр түгжээ тавих хэрэгтэй болно, гэхдээ одоогийн байдлаар
+   * нэг л хуулбар ажилладаг.
+   */
+  private static faceCapture: string | null = null;
 
   /** Төлбөрийн холбоосыг сэлгэх (алдагдсан гэж үзвэл). */
   async rotatePayToken(id: string): Promise<{ payToken: string }> {

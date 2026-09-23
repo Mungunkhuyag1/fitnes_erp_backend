@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { basename, join } from 'path';
 import { ConfigService } from '@nestjs/config';
 import {
+  FaceCaptureTimeoutError,
   MissingDeviceUserError,
   type DeviceUserRow,
   type FaceInfo,
@@ -282,6 +283,36 @@ export class StubDeviceGateway implements DeviceGateway, OnModuleInit {
       };
     }
     return out;
+  }
+
+  /**
+   * Царай уншуулахыг дуурайлгана.
+   *
+   * ★ ЯАГААД САНААТАЙГААР УДААН ВЭ
+   *
+   * Жинхэнэ терминал хүн ойртохыг хүлээдэг тул дэлгэц дээр «хүлээж
+   * байна» төлөв ЗААВАЛ байх ёстой. Stub нь шууд амжилт буцаавал тэр
+   * төлөвийг хөгжүүлэлтийн явцад хэзээ ч харахгүй бөгөөд газар дээр
+   * л анх удаа асуудалтай нь мэдэгдэнэ.
+   *
+   * `STUB_FACE_CAPTURE_FAIL=true` бол «олдсонгүй» замыг турших.
+   */
+  async enrollFace(employeeNo: string): Promise<FaceInfo> {
+    await this.simulate('enrollFace', employeeNo);
+    const u = this.users.get(employeeNo);
+    // Жинхэнэ терминал дээр ч царай нь хэрэглэгчид холбогддог.
+    if (!u) throw new MissingDeviceUserError(employeeNo);
+
+    await new Promise((r) => setTimeout(r, 2_500));
+
+    if (process.env.STUB_FACE_CAPTURE_FAIL === 'true') {
+      throw new FaceCaptureTimeoutError();
+    }
+
+    u.faceAt = 0; // Тэр дор нь бүртгэгдсэн болов.
+    const info = (await this.faceStatus([employeeNo]))[employeeNo];
+    this.log.log(`[STUB] №${employeeNo} царай уншуулав`);
+    return info;
   }
 
   async openDoor(doorNo = 1): Promise<void> {

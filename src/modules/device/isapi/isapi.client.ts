@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { DigestAuthError, DigestClient } from './digest';
 
 export interface IsapiConfig {
@@ -29,6 +30,37 @@ export class IsapiUserNotFound extends Error {
   constructor(readonly employeeNo: string) {
     super(`Терминал дээр ${employeeNo} дугаартай хэрэглэгч байхгүй`);
     this.name = 'IsapiUserNotFound';
+  }
+}
+
+/**
+ * Терминал царай ОЛСОНГҮЙ — хүн ирсэнгүй, эсвэл буруу зогссон.
+ *
+ * ⚠ Энэ нь ЭВДРЭЛ БИШ, ердийн үр дүн: ажилтан дахин дарахад л
+ * болно. Тиймээс тусад нь ангилж, дэлгэц дээр «дахин оролдоно уу»
+ * гэж хэлнэ — «терминал холбогдсонгүй» гэсэн худал мэдээлэл биш.
+ */
+export class IsapiFaceCaptureTimeout extends Error {
+  constructor(message = 'Царай олдсонгүй — терминалын өмнө зогсож дахин оролдоно уу') {
+    super(message);
+    this.name = 'IsapiFaceCaptureTimeout';
+  }
+}
+
+/**
+ * Терминал царайг БАРЬСАН ч хүлээж АВСАНГҮЙ.
+ *
+ * Гэрэл муу, нүүр жижиг, өнцөг ташуу, нүдний шил гэрэлтсэн. Заалны
+ * нөхцөлд хамгийн олон тохиолддог үр дүн.
+ *
+ * ⚠ Үүнийг холболтын алдаанаас ЗААВАЛ ялгана. «Терминалтай холбогдож
+ * чадсангүй» гэж хэлбэл ажилтан сүлжээ шалгаж, тунелээ дахин асааж,
+ * эцэст нь гишүүнээ буцаана — асуудал нь зүгээр л гэрэлтүүлэг байхад.
+ */
+export class IsapiFaceRejected extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'IsapiFaceRejected';
   }
 }
 
@@ -322,6 +354,232 @@ export class IsapiClient {
       };
     }
     return out;
+  }
+
+  /**
+   * Царай уншуулах бүтэн урсгал: барих → санд бичих → баталгаажуулах.
+   *
+   * ★ ГУРВАН АЛХАМ, ГУРВАН ӨӨР ISAPI
+   *
+   *  1. `CaptureFaceData`  — терминал дэлгэцээ асааж камераараа барина
+   *  2. `FaceDataRecord`   — барьсан зургийг тухайн хүний нэр дээр бичнэ
+   *  3. `FDSearch`         — үнэхээр орсон эсэхийг ТЕРМИНАЛААС асууна
+   *
+   * ★ ЯАГААД 3 ДАХЬ АЛХАМ ХЭРЭГТЭЙ ВЭ
+   *
+   * 2-р алхам `200 OK` буцаасан ч терминал зургийг хүлээж аваагүй
+   * байж болно (чанар муу, нүүр жижиг). Асуухгүй бол WinFit «бүртгэгдлээ»
+   * гэж бичээд, хүн маргааш хаалган дээр зогсоно.
+   *
+   * ⚠ ЭНЭ ШАЛГАЛТЫН ХЯЗГААР: ДАХИН уншуулахад `enrolled` нь ХУУЧИН
+   * царайгаар ч үнэн гарна. Өөрөөр хэлбэл «шинэ зураг солигдсон уу»
+   * гэдгийг батлахгүй, зөвхөн «царай байгаа юу» гэдгийг. Терминал нь
+   * зургийн файлын нэрийг ижилхэн үлдээдэг тул замаар нь ч ялгах
+   * боломжгүй. Шинээр бүртгэх үед (гол хэрэглээ) шалгалт бүрэн зөв.
+   */
+  async enrollFace(
+    employeeNo: string,
+    waitMs = 60_000,
+  ): Promise<FaceInfo> {
+    const jpeg = await this.captureFace(waitMs);
+    await this.putFace(employeeNo, jpeg);
+    const status = await this.faceStatus([employeeNo]);
+    const info = status[employeeNo] ?? { enrolled: false, path: null };
+    if (!info.enrolled) {
+      /*
+       * ⚠ Энэ нь ХОЛБОЛТЫН алдаа БИШ — терминал хариулсан, зөвхөн
+       * зургийг нь хүлээж аваагүй. Иймд «дахин оролдох» ангилалд
+       * оруулна: заалны гэрэлтүүлэг муу, хүн хол зогссон гэх мэт
+       * шалтгаан нь фитнес дээр ХАМГИЙН ОЛОН тохиолдоно.
+       */
+      throw new IsapiFaceRejected(
+        'Терминал зургийг хүлээж авсангүй — гэрэлтүүлэг, өнцгөө засаж дахин оролдоно уу',
+      );
+    }
+    return info;
+  }
+
+  /**
+   * Терминалын камераар царай БАРИХ (алсын цуглуулга).
+   *
+   * ★ ЭНЭ НЬ УДААН ДУУДЛАГА
+   *
+   * Терминал хүн ойртохыг хүлээнэ. Тиймээс:
+   *   • `timeoutMs` нь энэ хүсэлтэд тусгайлан УРТ
+   *   • firmware хэсэгчилсэн явцыг (`captureProgress < 100`) буцаавал
+   *     дахин асууна — нэг хариугаар шийдвэл хүн ойртож амжаагүй үед
+   *     «олдсонгүй» гэж буруу дүгнэнэ
+   *
+   * ⚠ Хариуны БҮТЭЦ firmware хооронд зөрдөг. Тиймээс эхний хариуг
+   * түүхийгээр `debug` түвшинд логлоно — газар дээр нэг удаа ажиллуулж
+   * харснаар цаашдын засвар хурдан болно.
+   */
+  async captureFace(waitMs = 60_000): Promise<Buffer> {
+    const deadline = Date.now() + waitMs;
+    // Нэг оролдлогод терминалд өгөх хугацаа. Cloudflare tunnel нь
+    // origin-ийн хариуг ~100 сек хүлээдэг тул түүнээс доогуур барина.
+    const perTry = Math.min(30_000, Math.max(10_000, waitMs));
+    let logged = false;
+
+    for (;;) {
+      /*
+       * ⚠ Хугацааг ОРОЛДОХЫН ӨМНӨ шалгана.
+       *
+       * Дараа нь шалгавал 59.9 дэх секундэд шинэ оролдлого эхэлж,
+       * 35 секунд үргэлжилнэ. Түүн дээр зураг илгээх (30с) ба
+       * баталгаажуулах (15с) нэмэгдэж, нийт хүсэлт 100 секундээс
+       * давна — Cloudflare тунел яг тэнд таслаад 524 буцаана.
+       */
+      if (Date.now() >= deadline) throw new IsapiFaceCaptureTimeout();
+
+      const { status, text } = await this.http.request(
+        'POST',
+        '/ISAPI/AccessControl/CaptureFaceData',
+        '<CaptureFaceDataCond version="2.0">' +
+          '<captureInfrared>false</captureInfrared>' +
+          '<dataType>url</dataType>' +
+          '</CaptureFaceDataCond>',
+        { 'Content-Type': 'application/xml' },
+        { timeoutMs: perTry + 5_000 },
+      );
+
+      /*
+       * ⚠ `log`, `debug` БИШ — production дээр Nest нь `debug`-ийг
+       * ХАЯДАГ. Газар дээрх АНХНЫ ажиллагаа бол энэ хариуны бүтцийг
+       * харах цорын ганц боломж: `capabilities`-д схем нь байдаггүй
+       * тул firmware юу буцаахыг урьдчилан мэдэх арга үгүй. Харагдахгүй
+       * бол дахин таамаглахаас өөр зүйл үлдэхгүй.
+       *
+       * Уншуулалт бүрд НЭГ л удаа бичигдэнэ — лог дүүргэхгүй.
+       */
+      if (!logged) {
+        logged = true;
+        this.log.log(`CaptureFaceData хариу (${status}): ${text.slice(0, 500)}`);
+      }
+      if (status !== 200) throw new IsapiError(status, text);
+
+      const url = this.xmlValue(text, 'faceDataUrl');
+      if (url) {
+        const path = terminalPath(url);
+        if (!path) {
+          throw new IsapiError(200, text, `Барьсан зургийн зам танигдсангүй: ${url}`);
+        }
+        const img = await this.http.requestBytes('GET', path);
+        if (img.status !== 200 || !img.bytes.length) {
+          throw new IsapiError(img.status, '', 'Барьсан зургийг татаж чадсангүй');
+        }
+        return img.bytes;
+      }
+
+      /*
+       * Явц 100 хүрсэн ч хаяг алга = терминал царай ОЛООГҮЙ.
+       * Явц 100-аас бага бол хүлээсээр байна — дахин асууна.
+       */
+      const raw = this.xmlValue(text, 'captureProgress');
+
+      /*
+       * ⚠ ХАЯГ Ч АЛГА, ЯВЦ Ч АЛГА = энэ firmware `dataType=url`-ыг
+       * ТАНИХГҮЙ байна.
+       *
+       * Үүнийг «царай олдсонгүй» гэж үзвэл минут хүлээгээд буруу
+       * шалтгаан хэлнэ: ажилтан гишүүнээ дахин дахин зогсоож,
+       * асуудал нь firmware-т байгааг хэзээ ч мэдэхгүй. Тиймээс
+       * ШУУД унаж, түүхий хариуг үлдээнэ.
+       */
+      if (raw === null) {
+        throw new IsapiError(
+          status,
+          text,
+          'Терминал царай барих хүсэлтийг танихгүй байна (firmware дэмжихгүй байж магадгүй)',
+        );
+      }
+
+      const progress = Number(raw);
+      if (progress >= 100 || Date.now() >= deadline) {
+        throw new IsapiFaceCaptureTimeout();
+      }
+      // Терминалыг хүсэлтээр дарахгүй — хүн ойртоход хэдэн секунд хэрэгтэй.
+      await new Promise((r) => setTimeout(r, 1_500));
+    }
+  }
+
+  /**
+   * Барьсан зургийг тухайн хүний царайн бүртгэл болгон хадгална.
+   *
+   * ★ ХОЁР ӨӨР ENDPOINT — firmware-ээс ХАМААРНА
+   *
+   * Hikvision нь `FaceDataRecord` (нэмэх) ба `FDSetUp` (засах) гэж
+   * хоёр замтай бөгөөд аль нь ажиллах нь хувилбараас хамаарна. Аль
+   * нэг нь 4xx буцаавал нөгөөг нь оролдоно — эс бөгөөс өөр firmware
+   * дээр чимээгүй ажиллахаа болино.
+   *
+   * ⚠ `FPID` нь `employeeNo` — `faceStatus` хайхдаа ижил түлхүүр
+   * ашигладаг. Өөр утга бичвэл зураг орох ч «бүртгэгдээгүй» харагдана.
+   */
+  private async putFace(employeeNo: string, jpeg: Buffer): Promise<void> {
+    const attempts: { method: string; path: string }[] = [
+      { method: 'POST', path: '/ISAPI/Intelligent/FDLib/FaceDataRecord?format=json' },
+      { method: 'PUT', path: '/ISAPI/Intelligent/FDLib/FDSetUp?format=json' },
+    ];
+
+    let last: IsapiError | null = null;
+    for (const a of attempts) {
+      const boundary = `----winfit${randomBytes(12).toString('hex')}`;
+      const body = this.faceMultipart(boundary, employeeNo, jpeg);
+      const { status, text } = await this.http.requestBinary(
+        a.method,
+        a.path,
+        body,
+        { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        // Зураг илгээх нь ~100КБ — сүлжээ удаан бол 15 сек хүрэлцэхгүй.
+        { timeoutMs: 30_000 },
+      );
+      if (status === 200) {
+        try {
+          this.assertOk(text);
+          this.log.log(`Царай бичигдэв (${a.path}): №${employeeNo}`);
+          return;
+        } catch (e) {
+          last = e instanceof IsapiError ? e : new IsapiError(200, text);
+        }
+      } else {
+        last = new IsapiError(status, text);
+      }
+      this.log.debug(`${a.path} бүтсэнгүй (${status}) — дараагийнхыг оролдоно`);
+    }
+    throw last ?? new IsapiError(0, '', 'Царай бичигдсэнгүй');
+  }
+
+  /** Hikvision-ий хүлээдэг `multipart/form-data` биеийг угсарна. */
+  private faceMultipart(
+    boundary: string,
+    employeeNo: string,
+    jpeg: Buffer,
+  ): Buffer {
+    const meta = JSON.stringify({
+      faceLibType: 'blackFD',
+      FDID: '1',
+      FPID: employeeNo,
+    });
+    return Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\n` +
+          'Content-Disposition: form-data; name="FaceDataRecord";\r\n' +
+          'Content-Type: application/json\r\n' +
+          `Content-Length: ${Buffer.byteLength(meta)}\r\n\r\n` +
+          `${meta}\r\n`,
+        'utf8',
+      ),
+      Buffer.from(
+        `--${boundary}\r\n` +
+          'Content-Disposition: form-data; name="img"; filename="face.jpg"\r\n' +
+          'Content-Type: image/jpeg\r\n' +
+          `Content-Length: ${jpeg.length}\r\n\r\n`,
+        'utf8',
+      ),
+      jpeg,
+      Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8'),
+    ]);
   }
 
   // ══════════════════════════════════════════════════════════════

@@ -68,6 +68,38 @@ export class MemberController {
   }
 
   /**
+   * Терминал дээр царай уншуулах.
+   *
+   * ⚠ УДААН хариу (хүн терминалын өмнө зогсохыг хүлээнэ). Дуудагч тал
+   * хүсэлтээ богино хугацаагаар таслах ёсгүй.
+   *
+   * Эрх: ресепшн ч хийнэ — `resync`-тэй ижил. Энэ бол шинэ гишүүн
+   * бүртгэх ердийн алхам бөгөөд менежер хүлээвэл хийгдэхгүй үлдэнэ
+   * (docs/09-role-matrix.md).
+   */
+  @Post(':id/face')
+  @ApiOperation({ summary: 'Терминал дээр царай уншуулах (алсаас эхлүүлнэ)' })
+  async enrollFace(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const r = await this.members.enrollFace(id);
+    /*
+     * Зөвхөн АМЖИЛТЫГ аудитад бичнэ. Бүтэлгүй оролдлого (хүн ирээгүй)
+     * нь хэвийн бөгөөд өдөрт хэдэн ч удаа гарч болно — аудитыг дүүргэвэл
+     * жинхэнэ чухал мөрүүд түүн дотор алга болно.
+     */
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'member.faceEnroll',
+      entity: 'member',
+      entityId: id,
+      after: { faceEnrolledAt: r.faceEnrolledAt },
+    });
+    return r;
+  }
+
+  /**
    * Ажилтны данстай холбох — тайлангаас хасах тэмдэг.
    *
    * ADMIN эрхтэй: энэ нь тайлангийн тоог өөрчлөдөг тул ресепшнээс

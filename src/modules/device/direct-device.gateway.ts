@@ -6,9 +6,13 @@ import {
   DigestAuthError,
   IsapiClient,
   IsapiError,
+  IsapiFaceCaptureTimeout,
+  IsapiFaceRejected,
   IsapiUserNotFound,
 } from './isapi/isapi.client';
 import {
+  FaceCaptureTimeoutError,
+  FaceRejectedError,
   MissingDeviceUserError,
   type DeviceGateway,
   type DeviceInfo,
@@ -168,6 +172,53 @@ export class DirectDeviceGateway implements DeviceGateway, OnModuleInit {
 
   async faceStatus(employeeNos: string[]): Promise<Record<string, FaceInfo>> {
     return this.guard(() => this.api().faceStatus(employeeNos));
+  }
+
+  /**
+   * Царай уншуулах.
+   *
+   * ⚠ `guard`-ын ДОТОР оруулаагүй нь ЗОРИУД. `guard` нь сүлжээний алдаа
+   * гарвал хаягийг дахин хайгаад үйлдлийг ДАХИН эхлүүлдэг. Царай
+   * уншуулах нь хүн терминалын өмнө зогсож байхад нэг л удаа явах
+   * ёстой урт үйлдэл — дахин эхлүүлбэл хүн хоёр дахь удаа хүлээнэ.
+   *
+   * Оронд нь хэрэглэгч байгаа эсэхийг УРЬДЧИЛЖ шалгана: тэр нь богино
+   * дуудлага тул `guard`-тай аюулгүй.
+   */
+  async enrollFace(employeeNo: string): Promise<FaceInfo> {
+    const exists = await this.guard(() => this.api().searchUser(employeeNo));
+    if (!exists) throw new MissingDeviceUserError(employeeNo);
+
+    try {
+      const info = await this.api().enrollFace(employeeNo, this.faceWaitMs);
+      this.log.log(`Терминал: №${employeeNo} царай уншуулав`);
+      return info;
+    } catch (e) {
+      if (e instanceof IsapiFaceCaptureTimeout) {
+        throw new FaceCaptureTimeoutError(e.message);
+      }
+      if (e instanceof IsapiFaceRejected) {
+        throw new FaceRejectedError(e.message);
+      }
+      if (e instanceof DigestAuthError) throw new PermanentError(e.message);
+      /*
+       * ⚠ ТЕРМИНАЛ ХАРИУЛСАН АЛДААГ «ХОЛБОГДСОНГҮЙ» ГЭЖ ХЭЛЭХГҮЙ.
+       *
+       * 4xx (мөн ISAPI-ийн дотоод статус) гэдэг нь холболт БҮТСЭН,
+       * зөвхөн хүсэлтийг татгалзсан гэсэн үг: `FDLib` дүүрсэн, зураг
+       * танигдаагүй, эрх хүрэлцээгүй. Үүнийг сүлжээний алдаа гэж
+       * харуулбал ажилтан тунел, IP, нууц үг шалгаж цаг алдана.
+       */
+      if (e instanceof IsapiError && e.status < 500) {
+        throw new FaceRejectedError(e.message);
+      }
+      throw e;
+    }
+  }
+
+  /** Хүн терминал руу очиж зогсох хүртэл хүлээх хугацаа. */
+  private get faceWaitMs(): number {
+    return Number(process.env.FACE_CAPTURE_WAIT_MS ?? 60_000);
   }
 
   async listUsers(): Promise<DeviceUserRow[]> {

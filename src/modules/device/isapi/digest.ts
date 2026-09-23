@@ -106,6 +106,20 @@ export interface DigestOptions {
   defaultHeaders?: Record<string, string>;
 }
 
+/** Нэг хүсэлтэд л хамаарах тохиргоо. */
+export interface RequestOpts {
+  /**
+   * Энэ хүсэлтийн хугацаа (мс) — клиентийн анхдагчийг ДАРНА.
+   *
+   * ⚠ Яагаад хэрэгтэй вэ: царай уншуулах (`CaptureFaceData`) нь хүн
+   * терминалын өмнө зогсохыг ХҮЛЭЭДЭГ. 15 секундээр тасалбал хүн
+   * ойртож амжаагүй байхад л алдаа буцна. Бусад дуудлагын хугацааг
+   * уртасгавал терминал унтарсан үед бүх зүйл гацна — тиймээс
+   * ерөнхийд нь биш, ЗӨВХӨН тэр дуудлагад.
+   */
+  timeoutMs?: number;
+}
+
 /**
  * Digest auth-тай HTTP клиент — нэг төхөөрөмжид нэг instance.
  *
@@ -126,8 +140,9 @@ export class DigestClient {
     path: string,
     body?: string,
     headers: Record<string, string> = {},
+    opts: RequestOpts = {},
   ): Promise<{ status: number; text: string }> {
-    const res = await this.exec(method, path, body, headers);
+    const res = await this.exec(method, path, body, headers, opts);
     return { status: res.status, text: await res.text() };
   }
 
@@ -140,8 +155,9 @@ export class DigestClient {
   async requestBytes(
     method: string,
     path: string,
+    opts: RequestOpts = {},
   ): Promise<{ status: number; bytes: Buffer; contentType: string | null }> {
-    const res = await this.exec(method, path);
+    const res = await this.exec(method, path, undefined, {}, opts);
     return {
       status: res.status,
       bytes: Buffer.from(await res.arrayBuffer()),
@@ -149,16 +165,49 @@ export class DigestClient {
     };
   }
 
+  /**
+   * ХОЁРТЫН БИЕТЭЙ хүсэлт — `multipart/form-data` (царай илгээх).
+   *
+   * ⚠ Биеийг мөр болгож илгээж БОЛОХГҮЙ: JPEG-ийн байт UTF-8-аар
+   * гажиж, терминал «зураг таниагүй» гэж буцаана.
+   */
+  async requestBinary(
+    method: string,
+    path: string,
+    body: Buffer,
+    headers: Record<string, string> = {},
+    opts: RequestOpts = {},
+  ): Promise<{ status: number; text: string }> {
+    const res = await this.exec(method, path, body, headers, opts);
+    return { status: res.status, text: await res.text() };
+  }
+
   /** Digest гар барилтыг гүйцэтгээд ТҮҮХИЙ хариуг буцаана. */
   private async exec(
     method: string,
     path: string,
-    body?: string,
+    body?: string | Buffer,
     headers: Record<string, string> = {},
+    opts: RequestOpts = {},
   ): Promise<Response> {
     const url = `${this.baseUrl.replace(/\/$/, '')}${path}`;
     // `uri` нь ЗАМ (query-тэйгээ), бүтэн URL биш — эс тэгвээс hash таарахгүй.
     const uri = path;
+
+    /*
+     * ⚠ `Buffer`-ыг `fetch` шууд хүлээж авдаггүй (TS-ийн `BodyInit`-д
+     * `Buffer` байхгүй). Энгийн `ArrayBuffer` дээр суурилсан
+     * `Uint8Array` болгож хөрвүүлнэ — байт өөрчлөгдөхгүй.
+     */
+    const payload =
+      body === undefined || typeof body === 'string'
+        ? body
+        : new Uint8Array(
+            body.buffer.slice(
+              body.byteOffset,
+              body.byteOffset + body.byteLength,
+            ) as ArrayBuffer,
+          );
 
     const send = (auth?: string): Promise<Response> =>
       fetch(url, {
@@ -169,8 +218,10 @@ export class DigestClient {
           ...(auth ? { Authorization: auth } : {}),
           ...(body ? { 'Content-Type': headers['Content-Type'] ?? 'application/json' } : {}),
         },
-        body,
-        signal: AbortSignal.timeout(this.opts.timeoutMs ?? 15_000),
+        body: payload,
+        signal: AbortSignal.timeout(
+          opts.timeoutMs ?? this.opts.timeoutMs ?? 15_000,
+        ),
       });
 
     // 1) Кэшлэсэн challenge байвал шууд креденшлтэй илгээнэ.

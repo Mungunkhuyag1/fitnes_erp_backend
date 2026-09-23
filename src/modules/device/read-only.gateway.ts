@@ -75,6 +75,24 @@ export class ReadOnlyDeviceGateway implements DeviceGateway {
   openDoor(doorNo?: number): Promise<void> {
     return this.inner.openDoor(doorNo);
   }
+  /*
+   * ★ ЦАРАЙ УНШУУЛАХЫГ ЗӨВШӨӨРНӨ — `openDoor`-той ижил шалтгаанаар.
+   *
+   * `DEVICE_WRITES=off` нь `UserInfo`-г хамгаалж байгаа: тэнд бичихэд
+   * терминал дээрх админ эрх, хүйс, хаалганы хуваарь дарагдах эрсдэлтэй
+   * (`upsertUser` нь `userType: 'normal'`-ыг үргэлж илгээдэг).
+   *
+   * Царай нь ӨӨР сан (`FDLib`) бөгөөд бичилт нь ТУХАЙН НЭГ `FPID`-д л
+   * хүрнэ — өөр хэрэглэгчийн юуг ч хөндөхгүй, байхгүй хүн дээр бүр
+   * ажиллахгүй. Мөн энэ нь ресепшн дээр хүн зогсож байхад хийгддэг
+   * ГАРААР эхлүүлсэн үйлдэл: outbox өөрөө давтахгүй.
+   *
+   * Хаавал шинэ гишүүн бүрийн царайг терминалын цэсээр гараар бүртгэх
+   * хэрэгтэй хэвээр үлдэнэ — энэ функцийн бүх утга алдагдана.
+   */
+  enrollFace(employeeNo: string): Promise<FaceInfo> {
+    return this.inner.enrollFace(employeeNo);
+  }
   info(): Promise<DeviceInfo> {
     return this.inner.info();
   }

@@ -25,6 +25,35 @@ export class MissingDeviceUserError extends Error {
   }
 }
 
+/**
+ * Терминал царай ОЛСОНГҮЙ.
+ *
+ * Хүн ирээгүй, хол зогссон, эсвэл гэрэл муу. Энэ нь ЭВДРЭЛ БИШ —
+ * дэлгэц дээр «дахин оролдоно уу» гэж хэлэх ёстой үр дүн. Ердийн
+ * алдаанаас ялгахгүй бол ажилтан терминал эвдэрсэн гэж бодно.
+ */
+export class FaceCaptureTimeoutError extends Error {
+  constructor(message = 'Царай олдсонгүй — терминалын өмнө зогсоод дахин оролдоно уу') {
+    super(message);
+    this.name = 'FaceCaptureTimeoutError';
+  }
+}
+
+/**
+ * Терминал царайг барьсан ч ХҮЛЭЭЖ АВСАНГҮЙ (гэрэл, өнцөг, зай).
+ *
+ * `FaceCaptureTimeoutError`-тай адилхан «хүнээ дахин зогсоо» гэсэн үр
+ * дүн боловч ШАЛТГААН нь өөр: тэр нь «хэн ч ирээгүй», энэ нь «ирсэн ч
+ * болсонгүй». Ажилтанд өгөх зөвлөгөө хоёр тохиолдолд өөр тул нэгтгэж
+ * болохгүй.
+ */
+export class FaceRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FaceRejectedError';
+  }
+}
+
 export interface UpsertUserInput {
   employeeNo: string;
   name: string;
@@ -102,6 +131,25 @@ export interface DeviceGateway {
 
   /** Заасан хүмүүсийн царай бүртгэгдсэн эсэх. */
   faceStatus(employeeNos: string[]): Promise<Record<string, FaceInfo>>;
+
+  /**
+   * Терминалыг ЦАРАЙ УНШУУЛАХ горимд оруулж, барьсан зургийг тухайн
+   * хүний нэр дээр хадгална.
+   *
+   * ★ ЯАГААД ГАРЦАД БАЙНА ВЭ
+   *
+   * Урьд нь царай нь зөвхөн терминалын дэлгэцээс гараар бүртгэгддэг
+   * байсан: ажилтан админ ПИН оруулж, цэсээр орж, хүнийг олж байж
+   * уншуулна. Шинэ гишүүн бүрт энэ нь 1-2 минут бөгөөд ихэнхдээ
+   * мартагдаад, хүн маргааш хаалган дээр зогсоно.
+   *
+   * ⚠ УДААН (хүн ойртохыг хүлээнэ) бөгөөд ХҮН БИЕЭР байх шаардлагатай.
+   * Тиймээс outbox-оор биш, дэлгэцээс ШУУД дуудагдана.
+   *
+   * ⚠ Хэрэглэгч терминал дээр БАЙХ ёстой: царай нь `employeeNo`-д
+   * холбогддог. Байхгүй бол `MissingDeviceUserError`.
+   */
+  enrollFace(employeeNo: string): Promise<FaceInfo>;
 
   openDoor(doorNo?: number): Promise<void>;
 
