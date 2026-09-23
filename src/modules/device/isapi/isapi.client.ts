@@ -71,6 +71,61 @@ interface Json {
   [k: string]: unknown;
 }
 
+/** `CaptureFaceDataCond` XML — `dataType` нь `null` бол талбарыг огт бичихгүй. */
+export function captureBody(dataType: string | null): string {
+  return (
+    '<CaptureFaceDataCond version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">' +
+    '<captureInfrared>false</captureInfrared>' +
+    (dataType ? `<dataType>${dataType}</dataType>` : '') +
+    '</CaptureFaceDataCond>'
+  );
+}
+
+/**
+ * `multipart` хариунаас ЗУРГИЙГ салгаж авна.
+ *
+ * ★ ЯАГААД БЭЛЭН НОМЫН САН АШИГЛААГҮЙ ВЭ
+ *
+ * Node-ийн `fetch` нь `formData()`-тай ч Hikvision-ий хэсгүүд нэргүй
+ * (`name=` байхгүй) ирдэг тул тэр нь задлахгүй. Энд хэрэгтэй зүйл нь
+ * нэг л зүйл: JPEG агуулсан хэсгийг олох. Тиймээс заагаар нь огтолж,
+ * толгой/биеийг нь салгана.
+ *
+ * ⚠ Инфра улаан кадр хамт ирж болно. Тиймээс `Content-Type: image/*`
+ * гэсэн ЭХНИЙ хэсгийг сонгоно — харагдах гэрлийн зураг нь эхэлж
+ * байрладаг. Толгойгүй бол JPEG-ийн гарын үсгээр (`FF D8 FF`) таана.
+ */
+export function pickImagePart(body: Buffer, contentType: string): Buffer | null {
+  const m = /boundary="?([^";]+)"?/i.exec(contentType);
+  if (!m) return null;
+  const sep = Buffer.from(`--${m[1]}`, 'utf8');
+
+  const parts: Buffer[] = [];
+  let from = body.indexOf(sep);
+  while (from !== -1) {
+    const next = body.indexOf(sep, from + sep.length);
+    if (next === -1) break;
+    parts.push(body.subarray(from + sep.length, next));
+    from = next;
+  }
+
+  for (const part of parts) {
+    // Толгой ба биеийг хоосон мөр тусгаарлана.
+    const split = part.indexOf('\r\n\r\n');
+    if (split === -1) continue;
+    const head = part.subarray(0, split).toString('utf8').toLowerCase();
+    // ⚠ Төгсгөлийн `\r\n` нь заагийнх — зурагт хамаарахгүй.
+    let data = part.subarray(split + 4);
+    if (data.length >= 2 && data[data.length - 2] === 0x0d) {
+      data = data.subarray(0, data.length - 2);
+    }
+    const isJpeg =
+      data.length > 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff;
+    if ((head.includes('image/') || isJpeg) && data.length) return data;
+  }
+  return null;
+}
+
 /**
  * Hikvision ISAPI клиент.
  *
@@ -419,7 +474,14 @@ export class IsapiClient {
     // Нэг оролдлогод терминалд өгөх хугацаа. Cloudflare tunnel нь
     // origin-ийн хариуг ~100 сек хүлээдэг тул түүнээс доогуур барина.
     const perTry = Math.min(30_000, Math.max(10_000, waitMs));
-    let logged = false;
+    /*
+     * Аль хувилбарын хариуг логлосныг тэмдэглэнэ.
+     *
+     * ⚠ Зүгээр `true/false` байсан бол эхний (унасан) хувилбарын хариу
+     * л бичигдэж, АЖИЛЛАСАН хувилбарын бүтэц харагдахгүй байв — яг тэр
+     * нь засварт хэрэгтэй мэдээлэл.
+     */
+    let loggedVariant: string | null = null;
 
     for (;;) {
       /*
@@ -432,31 +494,63 @@ export class IsapiClient {
        */
       if (Date.now() >= deadline) throw new IsapiFaceCaptureTimeout();
 
-      const { status, text } = await this.http.request(
+      const variant = this.captureVariant();
+      const res = await this.http.requestBytes(
         'POST',
         '/ISAPI/AccessControl/CaptureFaceData',
-        '<CaptureFaceDataCond version="2.0">' +
-          '<captureInfrared>false</captureInfrared>' +
-          '<dataType>url</dataType>' +
-          '</CaptureFaceDataCond>',
-        { 'Content-Type': 'application/xml' },
-        { timeoutMs: perTry + 5_000 },
+        {
+          body: variant.body,
+          headers: { 'Content-Type': 'application/xml' },
+          timeoutMs: perTry + 5_000,
+        },
       );
+      const ct = (res.contentType ?? '').toLowerCase();
 
       /*
        * ⚠ `log`, `debug` БИШ — production дээр Nest нь `debug`-ийг
        * ХАЯДАГ. Газар дээрх АНХНЫ ажиллагаа бол энэ хариуны бүтцийг
        * харах цорын ганц боломж: `capabilities`-д схем нь байдаггүй
-       * тул firmware юу буцаахыг урьдчилан мэдэх арга үгүй. Харагдахгүй
-       * бол дахин таамаглахаас өөр зүйл үлдэхгүй.
+       * тул firmware юу буцаахыг урьдчилан мэдэх арга үгүй.
        *
-       * Уншуулалт бүрд НЭГ л удаа бичигдэнэ — лог дүүргэхгүй.
+       * Уншуулалт бүрд НЭГ л удаа бичигдэнэ — лог дүүргэхгүй. Зургийн
+       * байтыг бичихгүй, зөвхөн хэмжээг нь.
        */
-      if (!logged) {
-        logged = true;
-        this.log.log(`CaptureFaceData хариу (${status}): ${text.slice(0, 500)}`);
+      if (loggedVariant !== variant.label) {
+        loggedVariant = variant.label;
+        const peek = ct.startsWith('image/') || ct.includes('multipart')
+          ? `${res.bytes.length} байт`
+          : res.bytes.toString('utf8').slice(0, 400);
+        this.log.log(
+          `CaptureFaceData [${variant.label}] хариу (${res.status}, ${ct || '?'}): ${peek}`,
+        );
       }
-      if (status !== 200) throw new IsapiError(status, text);
+
+      /*
+       * ★ ЗУРАГ ШУУД ИРЛЭЭ
+       *
+       * `dataType=binary` үед терминал JPEG-ийг биеэрээ буцаадаг —
+       * заримдаа дангаар, заримдаа `multipart` дотор (халуун/инфра
+       * улаан кадр хамт). Аль ч тохиолдолд нэмэлт татах хэрэггүй.
+       */
+      if (res.status === 200) {
+        if (ct.startsWith('image/') && res.bytes.length) return res.bytes;
+        if (ct.includes('multipart')) {
+          const img = pickImagePart(res.bytes, ct);
+          if (img) return img;
+        }
+      }
+
+      const text = res.bytes.toString('utf8');
+
+      /*
+       * Хүсэлтийн хэлбэрийг firmware татгалзвал ӨӨР хувилбар оролдоно.
+       * `captureVariant()` нь ажилласныг нь цээжилдэг тул энэ нь нэг
+       * удаагийн зардал.
+       */
+      if (res.status !== 200 && this.rejectsVariant(text)) {
+        if (await this.nextVariant(variant, text)) continue;
+      }
+      if (res.status !== 200) throw new IsapiError(res.status, text);
 
       const url = this.xmlValue(text, 'faceDataUrl');
       if (url) {
@@ -478,28 +572,103 @@ export class IsapiClient {
       const raw = this.xmlValue(text, 'captureProgress');
 
       /*
-       * ⚠ ХАЯГ Ч АЛГА, ЯВЦ Ч АЛГА = энэ firmware `dataType=url`-ыг
-       * ТАНИХГҮЙ байна.
+       * ⚠ ХАЯГ Ч АЛГА, ЯВЦ Ч АЛГА = хариу нь танил хэлбэрт ОРОХГҮЙ.
        *
        * Үүнийг «царай олдсонгүй» гэж үзвэл минут хүлээгээд буруу
        * шалтгаан хэлнэ: ажилтан гишүүнээ дахин дахин зогсоож,
        * асуудал нь firmware-т байгааг хэзээ ч мэдэхгүй. Тиймээс
-       * ШУУД унаж, түүхий хариуг үлдээнэ.
+       * ШУУД унаж, чадвараа терминалаас асуугаад лог руу үлдээнэ.
        */
       if (raw === null) {
+        await this.logCaptureCaps();
         throw new IsapiError(
-          status,
+          res.status,
           text,
           'Терминал царай барих хүсэлтийг танихгүй байна (firmware дэмжихгүй байж магадгүй)',
         );
       }
 
       const progress = Number(raw);
-      if (progress >= 100 || Date.now() >= deadline) {
-        throw new IsapiFaceCaptureTimeout();
-      }
+      if (progress >= 100) throw new IsapiFaceCaptureTimeout();
       // Терминалыг хүсэлтээр дарахгүй — хүн ойртоход хэдэн секунд хэрэгтэй.
       await new Promise((r) => setTimeout(r, 1_500));
+    }
+  }
+
+  // ── Хүсэлтийн хэлбэрийг firmware-т тааруулах ──
+
+  /**
+   * ★ ЯАГААД ХЭД ХЭДЭН ХУВИЛБАР ВЭ
+   *
+   * Бодит терминал (DS-K1T320MWX V3.5.2) `dataType=url`-ыг ТАТГАЛЗСАН:
+   *
+   *     statusCode 6 · Invalid Content · badParameters · errorMsg: dataType
+   *
+   * Hikvision-ий баримт бичигт хоёр утга (`url`, `binary`) бичигдсэн ч
+   * firmware бүр хоёуланг нь дэмждэггүй. Аль нь ажиллахыг ТААМАГЛАХ
+   * боломжгүй тул дарааллаар оролдоод, ажилласныг нь цээжилнэ.
+   *
+   * ⚠ Эрэмбэ нь санамсаргүй биш: `binary` нь энэ загвар дээр хамгийн
+   * магадлалтай (зураг шууд ирнэ, нэмэлт татах алхамгүй). Дараа нь
+   * `dataType`-гүй (төхөөрөмжийн анхдагч), эцэст нь `url`.
+   */
+  private static readonly CAPTURE_VARIANTS: { label: string; body: string }[] = [
+    { label: 'binary', body: captureBody('binary') },
+    { label: 'default', body: captureBody(null) },
+    { label: 'url', body: captureBody('url') },
+  ];
+
+  /** Аль хувилбар ажилладгийг цээжилнэ — дуудлага бүрд дахин хайхгүй. */
+  private captureVariantIdx = 0;
+
+  private captureVariant(): { label: string; body: string } {
+    return (
+      IsapiClient.CAPTURE_VARIANTS[this.captureVariantIdx] ??
+      IsapiClient.CAPTURE_VARIANTS[0]
+    );
+  }
+
+  /** Хариу нь «параметр буруу» гэж байна уу. */
+  private rejectsVariant(text: string): boolean {
+    return /badParameters|Invalid Content|invalidContent|notSupport/i.test(text);
+  }
+
+  /** Дараагийн хувилбар руу шилжинэ. Дуусвал `false`. */
+  private async nextVariant(
+    used: { label: string },
+    text: string,
+  ): Promise<boolean> {
+    const next = this.captureVariantIdx + 1;
+    if (next >= IsapiClient.CAPTURE_VARIANTS.length) {
+      await this.logCaptureCaps();
+      return false;
+    }
+    this.captureVariantIdx = next;
+    this.log.warn(
+      `CaptureFaceData «${used.label}» татгалзагдав (${this.xmlValue(text, 'errorMsg') ?? '?'}) — ` +
+        `«${IsapiClient.CAPTURE_VARIANTS[next].label}» оролдоно`,
+    );
+    return true;
+  }
+
+  /**
+   * Терминалаас царай барих ЧАДВАРЫГ асууж логлоно.
+   *
+   * Бүх хувилбар унасан үед л дуудагдана: тэр мөчид ямар талбар,
+   * ямар утга зөвшөөрөгдөхийг ТӨХӨӨРӨМЖӨӨС нь уншсан нь дахин
+   * таамаглахаас хавьгүй хурдан.
+   */
+  private async logCaptureCaps(): Promise<void> {
+    try {
+      const r = await this.http.request(
+        'GET',
+        '/ISAPI/AccessControl/CaptureFaceData/capabilities?format=json',
+      );
+      this.log.warn(
+        `CaptureFaceData чадвар (${r.status}): ${r.text.slice(0, 600)}`,
+      );
+    } catch (e) {
+      this.log.warn(`CaptureFaceData чадвар уншигдсангүй: ${(e as Error).message}`);
     }
   }
 

@@ -155,9 +155,19 @@ export class DigestClient {
   async requestBytes(
     method: string,
     path: string,
-    opts: RequestOpts = {},
+    opts: RequestOpts & {
+      /** Хүсэлтийн бие — XML/JSON мөр (`CaptureFaceData` гэх мэт). */
+      body?: string | Buffer;
+      headers?: Record<string, string>;
+    } = {},
   ): Promise<{ status: number; bytes: Buffer; contentType: string | null }> {
-    const res = await this.exec(method, path, undefined, {}, opts);
+    const res = await this.exec(
+      method,
+      path,
+      opts.body,
+      opts.headers ?? {},
+      opts,
+    );
     return {
       status: res.status,
       bytes: Buffer.from(await res.arrayBuffer()),
