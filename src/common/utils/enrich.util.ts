@@ -1,4 +1,5 @@
 import type { DataSource } from 'typeorm';
+import type { PlanMember } from './sync-plan.util';
 
 export interface MemberBrief {
   id: string;
@@ -31,6 +32,53 @@ export async function loadMembers(
   );
   return new Map(
     rows.map((r) => [r.id, { id: r.id, name: r.name, memberNo: r.member_no }]),
+  );
+}
+
+/**
+ * Дарааллын ТӨЛӨВЛӨГӨӨ тооцоход хэрэгтэй бүрэн талбарууд.
+ *
+ * `loadMembers`-аас ТУСДАА: тэр нь аудит, жагсаалт зэрэг олон газарт
+ * ашиглагддаг бөгөөд зөвхөн нэр хэрэгтэй. Тэнд нэмэлт багана татах нь
+ * хуудас бүрд дэмий ачаалал.
+ */
+export async function loadPlanMembers(
+  ds: DataSource,
+  ids: (string | null | undefined)[],
+): Promise<Map<string, PlanMember & MemberBrief>> {
+  const clean = [...new Set(ids.filter((v): v is string => !!v && UUID.test(v)))];
+  if (!clean.length) return new Map();
+  const rows = await ds.query<
+    {
+      id: string;
+      name: string;
+      member_no: string;
+      status: string;
+      access_ends_at: Date | null;
+      created_at: Date;
+      phone: string | null;
+      loopy_card_serial: string | null;
+    }[]
+  >(
+    `SELECT id, name, member_no, status, access_ends_at, created_at,
+            phone, loopy_card_serial
+       FROM members WHERE id = ANY($1)`,
+    [clean],
+  );
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        id: r.id,
+        name: r.name,
+        memberNo: r.member_no,
+        status: r.status,
+        accessEndsAt: r.access_ends_at,
+        createdAt: r.created_at,
+        phone: r.phone,
+        loopyCardSerial: r.loopy_card_serial,
+      },
+    ]),
   );
 }
 

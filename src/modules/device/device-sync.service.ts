@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { MemberStatus } from '../../common/enums/member-status.enum';
+import { TOPIC, deviceValidity } from '../../common/utils/sync-plan.util';
 import { Member } from '../member/member.entity';
 import { PermanentError } from '../outbox/outbox.errors';
 import { OutboxRegistry } from '../outbox/outbox.registry';
@@ -12,9 +12,13 @@ import {
 } from './device.gateway';
 
 /** Outbox topic-ууд — терминал руу чиглэсэн. */
+/*
+ * ⚠ Нэрс нь `sync-plan.util`-д тодорхойлогдоно. Хоёр газарт бичвэл нэг
+ * нь өөрчлөгдөхөд дарааллын дэлгэц чимээгүй таних боломжгүй болно.
+ */
 export const DEVICE_TOPICS = {
-  USER_UPSERT: 'hik.userUpsert',
-  SET_VALIDITY: 'hik.setValidity',
+  USER_UPSERT: TOPIC.HIK_UPSERT,
+  SET_VALIDITY: TOPIC.HIK_VALIDITY,
 } as const;
 
 /** Гишүүн бүрийн командыг дараалалд барих түлхүүр. */
@@ -130,35 +134,12 @@ export class DeviceSyncService implements OnModuleInit {
   }
 }
 
-/**
- * Терминал дээр бичигдэх ЭРХИЙН ЦОНХ — ганц тодорхойлолт.
+/*
+ * ⚠ ДҮРМИЙГ ЭНД БИЧИХГҮЙ — `sync-plan.util` эзэмшинэ.
  *
- * ⚠ Тулгалт (`DeviceAuditService`) ЭНЭ функцийг заавал ашиглана.
- * Өөрийн дүрэм зохиовол WinFit хэзээ ч бичихгүй утгыг «зөрүү» гэж
- * дуудаж, шөнө бүр 300 гишүүнийг дэмий дахин бичих болно.
+ * Энэ дүрмийг `device-sync`, тулгалт, дарааллын төлөвлөгөө гурвуулан
+ * дууддаг. Гурван газарт тусад нь бичвэл тулгалт хэзээ ч арилдаггүй
+ * хуурамч зөрүү заасаар байна. Хуучин дуудагчид эвдрэхгүйн тулд
+ * дахин гаргана.
  */
-export function deviceValidity(m: Member): {
-  begin: Date;
-  end: Date;
-  enable: boolean;
-} {
-  return {
-    begin: m.createdAt,
-    end: m.accessEndsAt ?? m.createdAt,
-    // Түр зогсоосон гишүүнд эрхийг унтраана (огноог нь хөндөхгүй).
-    // Хугацаа дууссан гишүүнийг УНТРААХГҮЙ — дуусах огноо нь өөрөө
-    // хаана. Терминал ч мөн адил `enable`-ыг үлдээдэг.
-    //
-    // ⚠ ЦУЦЛАГДСАН гишүүнийг мөн унтраана. Урьд нь түүнийг терминалаас
-    // УСТГАДАГ байв; одоо бичлэг нь үлдэж, зөвхөн эрх нь хаагдана
-    // (`cancel()` нь `accessEndsAt`-ыг өнөөдрөөр татдаг).
-    //
-    // ЯАГААД УСТГАХГҮЙ: терминал бол заалны цорын ганц хуулбар.
-    // Устгавал царай нь хамт арилах ба буцаахын тулд хүн биеэр ирж
-    // дахин уншуулах ёстой болно. Унтраасан бичлэг ямар ч хор
-    // хүргэхгүй — нэвтрэх эрхгүй, харин сэргээхэд нэг товч.
-    enable:
-      m.status !== MemberStatus.SUSPENDED &&
-      m.status !== MemberStatus.CANCELLED,
-  };
-}
+export { deviceValidity };

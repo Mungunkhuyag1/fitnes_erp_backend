@@ -84,6 +84,7 @@ import {
   DEVICE_TOPICS,
   memberGroup,
 } from '../device/device-sync.service';
+import { TOPIC, syncPlan } from '../../common/utils/sync-plan.util';
 import {
   DEVICE_GATEWAY,
   FaceCaptureCancelledError,
@@ -162,6 +163,13 @@ export interface MemberDetail extends MemberRow {
    * Ажилтны данстай холбоос — байвал энэ хүн тайлангаас хасагдана.
    */
   staffUser: { id: string; name: string; email: string; role: string } | null;
+  /**
+   * Терминал руу ЯГ ЮУ бичигдэх вэ.
+   *
+   * ⚠ Одоогийн төлөвөөс тооцно. «Терминал руу sync» дарахад яг эдгээр
+   * утга явна — ажилтан дарахаасаа өмнө хараад шалгах боломжтой.
+   */
+  devicePlan: { label: string; value: string }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -353,6 +361,13 @@ export class MemberService {
     return {
       ...this.row(m),
       staffUser,
+      /*
+       * «Терминал руу sync» дарвал ЯГ ЮУ явах вэ.
+       *
+       * ⚠ Дарааллын мөртэй ИЖИЛ функцээр тооцно — хоёр газарт тусад
+       * нь бичвэл дэлгэц дээр нэг зүйл харагдаад өөр зүйл бичигдэнэ.
+       */
+      devicePlan: syncPlan(TOPIC.HIK_UPSERT, m),
       email: m.email,
       note: m.note,
       gender: m.gender,

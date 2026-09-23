@@ -4,7 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { pageResult, type PageResult } from '../../common/dto/paginated';
 import type { ListOutboxDto } from './dto/outbox.dto';
-import { loadMembers } from '../../common/utils/enrich.util';
+import { loadPlanMembers } from '../../common/utils/enrich.util';
+import { syncPlan } from '../../common/utils/sync-plan.util';
 import { PermanentError } from './outbox.errors';
 import { OutboxMessage, OutboxStatus } from './outbox.entity';
 import { OutboxSignal } from './outbox.signal';
@@ -173,7 +174,15 @@ export class OutboxService {
     // Дараалал дахь мөр бүр ХЭНД хамаатайг харуулна. Үүнгүй бол
     // «loopy.extend амжилтгүй» гэсэн мөр хэнийх нь болох нь тодорхойгүй
     // тул ажилтан шийдвэрлэх боломжгүй.
-    const members = await loadMembers(
+    /*
+     * ⚠ `loadPlanMembers` — нэрнээс гадна ТӨЛӨВЛӨГӨӨНД хэрэгтэй
+     * талбаруудыг татна (төлөв, огноо, утас, картын дугаар).
+     *
+     * Үүнгүй бол мөр нь «Терминалд бичих · Enkhzorig №221» гэж л
+     * хэлэх ба ЯМАР огноо, ямар эрхээр бичихийг ажилтан мэдэхгүй.
+     * Алдаа гарсан үед яг энэ мэдээлэл хэрэгтэй болдог.
+     */
+    const members = await loadPlanMembers(
       this.ds,
       rows.map((r) => r.payload?.memberId as string | undefined),
     );
@@ -188,6 +197,14 @@ export class OutboxService {
           memberNo: m?.memberNo ?? null,
           // `disallowPhone` нь memberId-гүй — зөвхөн утас агуулна.
           phone: (r.payload?.phone as string | undefined) ?? null,
+          /*
+           * ЯГ ЮУ бичигдэх вэ.
+           *
+           * ⚠ ОДООГИЙН төлөвөөс тооцно — дараалал нь зөвхөн `memberId`
+           * хадгалдаг бөгөөд утгуудыг ажиллах АГШИНД тооцдог. Тиймээс
+           * энэ нь «Дахин дарвал юу явах вэ» гэсэн үнэн хариу.
+           */
+          plan: syncPlan(r.topic, m ?? null, r.payload),
         };
       }),
       total,
