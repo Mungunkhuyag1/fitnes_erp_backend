@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash } from 'crypto';
@@ -8,9 +8,26 @@ import { MemberStatus } from '../../common/enums/member-status.enum';
 import { startOfLocalDay } from '../../common/utils/date.util';
 import { splitTerminalName } from '../../common/utils/terminal-name.util';
 import { Member } from '../member/member.entity';
+import { DEVICE_GATEWAY, type DeviceGateway } from '../device/device.gateway';
 import { terminalPath } from '../device/isapi/terminal-path';
+import { mapAcsEvent, type RawAcsEvent } from './acs-event.mapper';
 import { AccessEvent, AccessReason } from './access-event.entity';
 import type { ListAccessEventsDto } from './dto/access.dto';
+
+/** Нэг эвентийн зургийг дахин асуухын өмнөх ЗАВСАР. */
+const PICTURE_RETRY_MS = 10 * 60_000;
+
+/** Дэлгэрэнгүй нээхэд зураг хүлээх ДЭЭД хугацаа. */
+const PICTURE_WAIT_MS = 6_000;
+
+/**
+ * Терминал хариугүй байвал ХЭР удаан огт оролдохгүй байх вэ.
+ *
+ * ⚠ Эвент тус бүрийн завсар ганцаараа хангалтгүй: терминал унтарсан үед
+ * ажилтан 10 өөр уншуулалт нээвэл 10 удаа 6 секунд хүлээнэ. Нэг
+ * бүтэлгүйтэл БҮГДИЙГ нь түр зогсоох ёстой.
+ */
+const PICTURE_COLD_MS = 2 * 60_000;
 
 export interface IngestInput {
   deviceId?: string | null;
@@ -49,7 +66,21 @@ export class AccessService {
     @InjectRepository(Member) private readonly members: Repository<Member>,
     private readonly config: ConfigService,
     private readonly ds: DataSource,
+    // Дэлгэрэнгүй нээхэд зураг нь дутуу бол ТЭР ДОР НЬ терминалаас асууна.
+    @Inject(DEVICE_GATEWAY) private readonly device: DeviceGateway,
   ) {}
+
+  /**
+   * Аль эвентийн зургийг ХЭЗЭЭ хамгийн сүүлд асуусан бэ.
+   *
+   * ⚠ Терминал тэр зургаа дарж бичсэн бол хэзээ ч олдохгүй. Хамгаалалтгүй
+   * бол ажилтан тэр цонхыг нээх бүрд, эсвэл жагсаалтаар гүйлгэх бүрд
+   * терминал руу дэмий хүсэлт явна.
+   */
+  private readonly pictureTried = new Map<string, number>();
+
+  /** Терминал хариугүй байсан — энэ хүртэл огт оролдохгүй. */
+  private pictureColdUntil = 0;
 
   private get tz(): string {
     return this.config.get<string>('timezone') ?? 'Asia/Ulaanbaatar';
@@ -190,6 +221,94 @@ export class AccessService {
       [days],
     );
     return Number(r?.n ?? 0);
+  }
+
+  /**
+   * Нэг эвентийн зургийг терминалаас ТАТАЖ ҮЗНЭ.
+   *
+   * ★ ГУРВАН ХЯЗГААРЛАЛТ
+   *
+   * 1. НАРИЙН ЦОНХ (±1 мин) — `AcsEvent` хайлт цонхоор ажилладаг тул
+   *    өдрөөр асуувал хэдэн зуун мөр татаж, хариу удаашрана.
+   *
+   * 2. ХУГАЦААНЫ ТАГ — терминал унтарсан үед `fetchEvents` нь 15
+   *    секунд хүлээдэг. Цонх нээхэд тэр чинээ гацвал ажилтан
+   *    «эвдэрлээ» гэж бодно. Тиймээс хүлээлтийг тасалж зураггүй
+   *    буцаана: суурь хүсэлт цаанаа үргэлжилж санг нөхнө, дараагийн
+   *    нээлтэд харагдана.
+   *
+   * 3. ДАХИН ОРОЛДОХ ЗАВСАР — терминал хуучин зургаа дарж бичсэн бол
+   *    хэзээ ч олдохгүй. Завсаргүй бол жагсаалт гүйлгэх бүрд дэмий
+   *    хүсэлт явна.
+   *
+   * ⚠ ХЭЗЭЭ Ч ШИДЭХГҮЙ. Зураг нь тав тухтай зүйл, дэлгэрэнгүй нь
+   * зайлшгүй: терминал унтарсан гэдгээр цонх нээгдэхгүй болох ёсгүй.
+   */
+  private async tryFetchPicture(e: AccessEvent): Promise<string | null> {
+    if (e.picturePath || !e.employeeNo) return null;
+    /*
+     * ⚠ Stub нь экспортын эвентийг ЗААСАН ЦОНХОНД тааруулж буцаадаг.
+     * Энд дуудвал дэлгэрэнгүй нээх бүрд хөгжүүлэлтийн санд хуурамч
+     * ирц үүснэ — татагч ч мөн адил шалтгаанаар stub-ыг алгасдаг.
+     */
+    if (this.config.get<string>('gateways.device') === 'stub') return null;
+
+    const now = Date.now();
+    // Терминал дөнгөж хариу өгөөгүй бол бүгдийг нь алгасна.
+    if (now < this.pictureColdUntil) return null;
+
+    const last = this.pictureTried.get(e.id) ?? 0;
+    if (now - last < PICTURE_RETRY_MS) return null;
+    // Санах ой хязгааргүй өсөхгүй: хуучин бичлэгүүдийг цэвэрлэнэ.
+    if (this.pictureTried.size > 500) this.pictureTried.clear();
+    this.pictureTried.set(e.id, now);
+
+    const at = e.eventAt.getTime();
+    const from = new Date(at - 60_000);
+    const to = new Date(at + 60_000);
+
+    try {
+      const raw = await Promise.race([
+        this.device.fetchEvents(from, to) as Promise<RawAcsEvent[]>,
+        new Promise<null>((r) => setTimeout(() => r(null), PICTURE_WAIT_MS)),
+      ]);
+      if (!raw) {
+        // Удаан байна — цаана нь үргэлжилнэ, гэхдээ дараагийн цонхыг
+        // дахин 6 секунд хүлээлгэхгүй.
+        this.pictureColdUntil = Date.now() + PICTURE_COLD_MS;
+        return null;
+      }
+
+      let mine: string | null = null;
+      for (const row of raw) {
+        const m = mapAcsEvent(row);
+        if (!m || m.employeeNo === null || !m.pictureUrl) continue;
+        // Бусдын зургийг ч нөхөж өгнө: нэг дуудлагаар ирсэн зүйлийг
+        // хаях нь дэмий, цонх нь хэдхэн мөр агуулна.
+        await this.ingest({
+          employeeNo: m.employeeNo,
+          eventAt: m.eventAt,
+          granted: m.granted,
+          verifyMode: m.verifyMode,
+          reason: m.reason,
+          raw: m.raw,
+          pictureUrl: m.pictureUrl,
+        });
+        if (
+          m.employeeNo === e.employeeNo &&
+          Math.abs(m.eventAt.getTime() - at) < 1_000
+        ) {
+          mine = terminalPath(m.pictureUrl);
+        }
+      }
+      if (mine) this.log.log(`Ирцийн зураг нөхөв: ${e.id}`);
+      return mine;
+    } catch (err) {
+      // Терминал холбогдохгүй байх нь ХЭВИЙН — цонх зураггүй нээгдэнэ.
+      this.pictureColdUntil = Date.now() + PICTURE_COLD_MS;
+      this.log.debug(`Зураг татагдсангүй (${e.id}): ${(err as Error).message}`);
+      return null;
+    }
   }
 
   private dedupeKey(i: IngestInput): string {
@@ -345,6 +464,19 @@ export class AccessService {
   async detail(id: string) {
     const e = await this.repo.findOne({ where: { id } });
     if (!e) throw new NotFoundException('Ирц олдсонгүй');
+
+    /*
+     * ★ ЗУРАГ ДУТУУ БОЛ ЯГ ОДОО АСУУНА
+     *
+     * Зураг нь хоёр эх сурвалжаас нийлдэг: эвентийг түлхэлт авчирдаг ч
+     * хаяггүй, 5 минут тутамын татагч хаягийг нь нөхдөг. Тунел
+     * таслагдах, deploy хийх үед татагчийн цонх өнгөрч, зураг дутна.
+     *
+     * Цаг тутамын нөхөлт байгаа ч ажилтан ЯГ ОДОО «энэ хэн бэ» гэж
+     * хардаг. Нэг цаг хүлээлгэх нь маргаан шийдэхэд хэрэггүй.
+     */
+    const path = await this.tryFetchPicture(e);
+    if (path) e.picturePath = path;
 
     /*
      * Гишүүнийг ХОЁР аргаар хайна.
