@@ -161,9 +161,18 @@ export class ReportService {
           WHERE reversed_at IS NULL AND source='bonum' AND paid_at >= today.start) AS rev_bonum,
         (SELECT coalesce(sum(amount),0) FROM memberships, today
           WHERE reversed_at IS NULL AND source='manual' AND paid_at >= today.start) AS rev_manual,
-        -- Цуглуулаагүй мөнгө — хэдэн төгрөг, хэдэн хүнээс.
+        -- Йогийн өнөөдрийн орлого. ⚠ Огноог yoga_payments-аас авна:
+        -- төлбөр хэсэгчилж ордог тул бүртгэлийн огноо тохирохгүй.
+        (SELECT coalesce(sum(p.amount),0) FROM yoga_payments p, today
+          WHERE p.paid_at >= today.start) AS rev_yoga,
+        -- Цуглуулаагүй мөнгө — заал БА йог хоёулаа.
         (SELECT coalesce(sum(amount),0) FROM memberships
-          WHERE reversed_at IS NULL AND paid_at IS NULL) AS receivable,
+          WHERE reversed_at IS NULL AND paid_at IS NULL) AS receivable_gym,
+        (SELECT coalesce(sum(e.amount_due - e.amount_paid),0)
+           FROM yoga_enrollments e
+           JOIN yoga_courses c ON c.id = e.course_id
+          WHERE c.archived_at IS NULL
+            AND e.amount_due > e.amount_paid) AS receivable_yoga,
         (SELECT count(DISTINCT member_id) FROM memberships
           WHERE reversed_at IS NULL AND paid_at IS NULL) AS receivable_members,
         (SELECT coalesce(sum(amount),0) FROM locker_assignments, today
@@ -207,7 +216,13 @@ export class ReportService {
         bonum: n('rev_bonum'),
         manual: n('rev_manual'),
         locker: n('rev_locker'),
-        total: n('rev_cash') + n('rev_bonum') + n('rev_manual') + n('rev_locker'),
+        yoga: n('rev_yoga'),
+        total:
+          n('rev_cash') +
+          n('rev_bonum') +
+          n('rev_manual') +
+          n('rev_locker') +
+          n('rev_yoga'),
       },
       /**
        * Цуглуулаагүй мөнгө — «дараа төлөх»-өөр зарсан эрх.
@@ -216,7 +231,10 @@ export class ReportService {
        * ажилтан хэнээс мөнгө авахаа мэдэхгүй бол авлага мартагдана.
        */
       receivable: {
-        amount: n('receivable'),
+        /** Заал + йог. Ажилтан НИЙТ хэдийг авах ёстойгоо мэдэх ёстой. */
+        amount: n('receivable_gym') + n('receivable_yoga'),
+        gym: n('receivable_gym'),
+        yoga: n('receivable_yoga'),
         members: n('receivable_members'),
       },
       sync: {
@@ -448,6 +466,8 @@ export class ReportService {
         (SELECT coalesce(sum(amount),0) FROM memberships
           WHERE reversed_at IS NULL AND paid_at IS NULL
             AND created_at BETWEEN $1 AND $2) AS receivable,
+        (SELECT coalesce(sum(p.amount),0) FROM yoga_payments p
+          WHERE p.paid_at BETWEEN $1 AND $2) AS yoga_revenue,
         -- ⚠ Чөлөө нь memberships-д 0₮-ийн мөр болж бичигддэг
         -- (recompute нь дэвтрээс тооцдог тул өөр арга байхгүй).
         -- Орлогод нөлөөгүй ч ХУДАЛДАН АВАЛТ гэж тоологдох ЁСГҮЙ.
@@ -472,12 +492,15 @@ export class ReportService {
       [from, to, this.tz],
     );
     const n = (k: string): number => Number(row[k] ?? 0);
-    const revenue = n('membership_revenue') + n('locker_revenue');
+    const revenue =
+      n('membership_revenue') + n('locker_revenue') + n('yoga_revenue');
     return {
       range: { from, to },
       revenue: {
         membership: n('membership_revenue'),
         locker: n('locker_revenue'),
+        /** ⚠ Тусдаа мөр — аль үйлчилгээ хэр ашигтайг ялгах боломжтой. */
+        yoga: n('yoga_revenue'),
         total: revenue,
         reversed: n('reversed'),
         /**
@@ -502,7 +525,14 @@ export class ReportService {
     const unit =
       q.groupBy === 'month' ? 'month' : q.groupBy === 'week' ? 'week' : 'day';
     const rows = await this.ds.query<
-      { bucket: string; cash: string; bonum: string; manual: string; locker: string }[]
+      {
+        bucket: string;
+        cash: string;
+        bonum: string;
+        manual: string;
+        locker: string;
+        yoga: string;
+      }[]
     >(
       `
       WITH ms AS (
@@ -519,12 +549,21 @@ export class ReportService {
                sum(amount) AS locker
         FROM locker_assignments
         WHERE type='rental' AND issued_at BETWEEN $1 AND $2
+        GROUP BY 1),
+      yg AS (
+        SELECT date_trunc($4, paid_at AT TIME ZONE $3) AS bucket,
+               sum(amount) AS yoga
+        FROM yoga_payments
+        WHERE paid_at BETWEEN $1 AND $2
         GROUP BY 1)
-      SELECT to_char(coalesce(ms.bucket, lk.bucket), CASE WHEN $4='month'
-               THEN 'YYYY-MM' ELSE 'YYYY-MM-DD' END) AS bucket,
+      SELECT to_char(coalesce(ms.bucket, lk.bucket, yg.bucket),
+               CASE WHEN $4='month' THEN 'YYYY-MM' ELSE 'YYYY-MM-DD' END) AS bucket,
              coalesce(ms.cash,0) AS cash, coalesce(ms.bonum,0) AS bonum,
-             coalesce(ms.manual,0) AS manual, coalesce(lk.locker,0) AS locker
-      FROM ms FULL OUTER JOIN lk ON ms.bucket = lk.bucket
+             coalesce(ms.manual,0) AS manual, coalesce(lk.locker,0) AS locker,
+             coalesce(yg.yoga,0) AS yoga
+      FROM ms
+      FULL OUTER JOIN lk ON ms.bucket = lk.bucket
+      FULL OUTER JOIN yg ON yg.bucket = coalesce(ms.bucket, lk.bucket)
       ORDER BY 1
       `,
       [from, to, this.tz, unit],
@@ -537,13 +576,15 @@ export class ReportService {
         const bonum = Number(r.bonum);
         const manual = Number(r.manual);
         const locker = Number(r.locker);
+        const yoga = Number(r.yoga);
         return {
           bucket: r.bucket,
           cash,
           bonum,
           manual,
           locker,
-          total: cash + bonum + manual + locker,
+          yoga,
+          total: cash + bonum + manual + locker + yoga,
         };
       }),
     };

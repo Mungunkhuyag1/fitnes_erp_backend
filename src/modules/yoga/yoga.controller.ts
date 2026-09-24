@@ -146,8 +146,9 @@ export class YogaController {
   addPayment(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AddPaymentDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.yoga.addPayment(id, dto);
+    return this.yoga.addPayment(id, dto, user.id);
   }
 
   @Delete('enrollments/:id')

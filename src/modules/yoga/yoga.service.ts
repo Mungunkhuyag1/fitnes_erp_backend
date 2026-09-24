@@ -23,6 +23,7 @@ import {
 import { YogaAttendance } from './yoga-attendance.entity';
 import { YogaCourse } from './yoga-course.entity';
 import { YogaEnrollment } from './yoga-enrollment.entity';
+import { YogaPayment } from './yoga-payment.entity';
 import {
   courseSessions,
   courseState,
@@ -82,6 +83,8 @@ export class YogaService {
     private readonly enrollments: Repository<YogaEnrollment>,
     @InjectRepository(YogaAttendance)
     private readonly attendance: Repository<YogaAttendance>,
+    @InjectRepository(YogaPayment)
+    private readonly payments: Repository<YogaPayment>,
     @InjectRepository(Member) private readonly members: Repository<Member>,
     @Inject(DEVICE_GATEWAY) private readonly device: DeviceGateway,
     private readonly config: ConfigService,
@@ -357,6 +360,21 @@ export class YogaService {
         staffUserId,
       }),
     );
+    /*
+     * ⚠ Эхний төлбөрийг ч МӨР болгож бичнэ. Зөвхөн `amount_paid`
+     * шинэчилбэл тэр мөнгө тайланд ХЭЗЭЭ Ч харагдахгүй — огноогүй тул.
+     */
+    if (paid > 0) {
+      await this.payments.save(
+        this.payments.create({
+          enrollmentId: saved.id,
+          amount: String(paid),
+          staffUserId,
+          note: 'Бүртгэх үед',
+        }),
+      );
+    }
+
     this.log.log(
       `Йог: ${name} → ${c.name} (${paid}/${due}₮${paid < due ? ' — үлдэгдэлтэй' : ''})`,
     );
@@ -382,9 +400,19 @@ export class YogaService {
    * ажилтан «одоо хэдийг авсан»-аа бичих нь «нийт хэд болсон»-оос
    * хамаагүй бага алдаатай.
    */
-  async addPayment(id: string, dto: AddPaymentDto) {
+  async addPayment(id: string, dto: AddPaymentDto, staffUserId?: string) {
     const e = await this.enrollments.findOne({ where: { id } });
     if (!e) throw new NotFoundException('Бүртгэл олдсонгүй');
+
+    // Огноотой мөр — тайлан эндээс уншина.
+    await this.payments.save(
+      this.payments.create({
+        enrollmentId: e.id,
+        amount: String(dto.amount),
+        staffUserId: staffUserId ?? null,
+      }),
+    );
+    // `amount_paid` нь КЭШ — жагсаалт болгонд нийлбэр хийхгүйн тулд.
     e.amountPaid = String(Number(e.amountPaid) + dto.amount);
     await this.enrollments.save(e);
     this.log.log(`Йог төлбөр: ${e.name} +${dto.amount}₮`);

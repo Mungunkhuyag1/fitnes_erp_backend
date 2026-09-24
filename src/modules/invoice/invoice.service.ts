@@ -41,6 +41,14 @@ export interface InvoiceView {
   packageName: string;
   days: number;
   amount: number;
+  /**
+   * Бодитоор ХҮЛЭЭН АВСАН дүн.
+   *
+   * ⚠ `amount`-аас БАГА байж болно: йогийн төлбөр хэсэгчилж ордог.
+   * Орлогын нийлбэрийг ЭНЭ талбараар бодно — `amount` нь «төлөх
+   * ёстой», энэ нь «орсон».
+   */
+  amountPaid: number;
   status: InvoiceStatus;
   /** Төлбөрийн суваг: `bonum` (онлайн) · `cash` · `manual`. */
   provider: string;
@@ -58,7 +66,7 @@ export interface InvoiceView {
    * хүлээнэ. Хоёуланг нь «хүлээгдэж буй» гэж нэг адил харуулбал
    * ажилтан авлагаа хэзээ ч цуглуулахгүй.
    */
-  kind: 'invoice' | 'membership';
+  kind: 'invoice' | 'membership' | 'yoga';
 }
 
 /*
@@ -525,7 +533,11 @@ export class InvoiceService {
      */
     const UNION = `
       SELECT i.id, i.member_id, i.package_id, i.package_name, i.days,
-             i.amount::bigint AS amount, i.status::text AS status,
+             i.amount::bigint AS amount,
+             -- Нэхэмжлэх нь бүтнээр төлөгддөг: төлөгдсөн бол бүтэн дүн.
+             (CASE WHEN i.status = 'paid' THEN i.amount ELSE 0 END)::bigint
+               AS amount_paid,
+             i.status::text AS status,
              i.provider, i.transaction_id, i.pay_url,
              i.paid_at, i.expires_at, i.created_at,
              'invoice'::text AS kind
@@ -533,6 +545,7 @@ export class InvoiceService {
       UNION ALL
       SELECT m.id, m.member_id, m.package_id, m.package_name, m.days,
              m.amount::bigint,
+             (CASE WHEN m.paid_at IS NOT NULL THEN m.amount ELSE 0 END)::bigint,
              CASE WHEN m.reversed_at IS NOT NULL THEN 'cancelled'
                   WHEN m.paid_at IS NULL          THEN 'pending'
                   ELSE 'paid' END,
@@ -542,7 +555,29 @@ export class InvoiceService {
         FROM memberships m
        WHERE m.invoice_id IS NULL
          AND m.source IN ('cash', 'manual')
-         AND m.amount::bigint > 0`;
+         AND m.amount::bigint > 0
+      UNION ALL
+      /*
+       * ★ ЙОГ — ангийн бүртгэл бүр нэг мөр.
+       *
+       * ⚠ Заалны гишүүнчлэлээс ялгаатай нь төлбөр нь ХЭСЭГЧИЛЖ ордог.
+       * Тиймээс «төлөх ёстой» (amount) ба «орсон» (amount_paid) хоёрыг
+       * ТУСАД нь өгнө: 100,000/250,000 гэсэн мөрийг «төлсөн» ч
+       * «төлөөгүй» ч гэж хэлэх нь худал.
+       */
+      SELECT e.id, e.member_id, c.id, c.name, 0,
+             e.amount_due::bigint, e.amount_paid::bigint,
+             CASE WHEN e.amount_paid >= e.amount_due THEN 'paid'
+                  ELSE 'pending' END,
+             'yoga', NULL, NULL,
+             (SELECT max(p.paid_at) FROM yoga_payments p
+               WHERE p.enrollment_id = e.id),
+             NULL, e.created_at,
+             'yoga'
+        FROM yoga_enrollments e
+        JOIN yoga_courses c ON c.id = e.course_id
+       WHERE c.archived_at IS NULL
+         AND e.amount_due::bigint > 0`;
 
     const [{ n }] = await this.ds.query<{ n: string }[]>(
       `SELECT count(*) AS n FROM (${UNION}) t ${filter}`,
@@ -557,6 +592,7 @@ export class InvoiceService {
         package_name: string | null;
         days: number;
         amount: string;
+        amount_paid: string;
         status: string;
         provider: string;
         transaction_id: string | null;
@@ -564,7 +600,7 @@ export class InvoiceService {
         paid_at: Date | null;
         expires_at: Date | null;
         created_at: Date;
-        kind: 'invoice' | 'membership';
+        kind: 'invoice' | 'membership' | 'yoga';
       }[]
     >(
       `SELECT * FROM (${UNION}) t ${filter}
@@ -591,6 +627,7 @@ export class InvoiceService {
         packageName: r.package_name ?? '—',
         days: r.days,
         amount: Number(r.amount),
+        amountPaid: Number(r.amount_paid),
         status: r.status as InvoiceStatus,
         provider: r.provider,
         payUrl: r.pay_url,
@@ -690,6 +727,7 @@ export class InvoiceService {
       packageName: i.packageName,
       days: i.days,
       amount: Number(i.amount),
+      amountPaid: i.status === InvoiceStatus.PAID ? Number(i.amount) : 0,
       status: i.status,
       provider: i.provider,
       payUrl: i.payUrl,

@@ -4,6 +4,7 @@ import { Member } from '../member/member.entity';
 import { YogaAttendance } from './yoga-attendance.entity';
 import { YogaCourse } from './yoga-course.entity';
 import { YogaEnrollment } from './yoga-enrollment.entity';
+import { YogaPayment } from './yoga-payment.entity';
 import { YogaController } from './yoga.controller';
 import { YogaService } from './yoga.service';
 
@@ -16,7 +17,13 @@ import { YogaService } from './yoga.service';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([YogaCourse, YogaEnrollment, YogaAttendance, Member]),
+    TypeOrmModule.forFeature([
+      YogaCourse,
+      YogaEnrollment,
+      YogaAttendance,
+      YogaPayment,
+      Member,
+    ]),
   ],
   controllers: [YogaController],
   providers: [YogaService],
