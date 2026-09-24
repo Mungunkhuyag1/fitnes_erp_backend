@@ -17,22 +17,21 @@ import {
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
 import {
-  CreateYogaBookingDto,
-  CreateYogaClassDto,
-  ListYogaClassesDto,
-  UpdateYogaBookingDto,
-  UpdateYogaClassDto,
+  AddPaymentDto,
+  CreateYogaCourseDto,
+  CreateYogaEnrollmentDto,
+  ListYogaCoursesDto,
+  MarkAttendanceDto,
+  UpdateYogaCourseDto,
+  UpdateYogaEnrollmentDto,
 } from './dto/yoga.dto';
 import { YogaService } from './yoga.service';
 
 /**
- * Йогийн хичээл ба оролцогчид.
+ * Йогийн анги, гишүүд, ирц.
  *
- * ⚠ Терминал, гишүүнчлэл, outbox аль нэгд нь ХҮРДЭГГҮЙ. Хаалгыг админ
- * өөрөө нээж өгдөг тул энэ нь цэвэр БҮРТГЭЛ.
- *
- * Эрх: ресепшн ч бүртгэнэ — йогийн оролцогчийг хичээл эхлэхийн өмнө
- * нэмэх нь ердийн ажил. Хичээлийн ХУВААРЬ өөрчлөхөд менежер.
+ * Эрх: гишүүн бүртгэх, ирц тэмдэглэхийг РЕСЕПШН хийнэ — өдөр тутмын
+ * ажил. Ангийн ХУВААРЬ өөрчлөхөд менежер.
  */
 @ApiTags('yoga')
 @ApiBearerAuth('access-token')
@@ -40,92 +39,146 @@ import { YogaService } from './yoga.service';
 export class YogaController {
   constructor(private readonly yoga: YogaService) {}
 
-  // ── Хичээл ──
+  // ── Анги ──
 
-  @Get('classes')
-  @ApiOperation({ summary: 'Хичээлийн хуваарь (анхдагчаар 30 хоног)' })
-  listClasses(@Query() q: ListYogaClassesDto) {
-    return this.yoga.listClasses(q);
+  @Get('courses')
+  @ApiOperation({ summary: 'Ангиуд — нэр/төлвөөр шүүнэ' })
+  listCourses(@Query() q: ListYogaCoursesDto) {
+    return this.yoga.listCourses(q);
   }
 
   @Get('summary')
-  @ApiOperation({ summary: 'Йогийн товч тоо — тусдаа тооцоо' })
-  summary(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.yoga.summary(from, to);
+  @ApiOperation({ summary: 'Йогийн товч тоо — заалнаас тусдаа' })
+  summary() {
+    return this.yoga.summary();
   }
 
-  @Get('classes/:id')
-  @ApiOperation({ summary: 'Нэг хичээл' })
-  getClass(@Param('id', ParseUUIDPipe) id: string) {
-    return this.yoga.getClass(id);
+  @Get('courses/:id')
+  @ApiOperation({ summary: 'Нэг анги' })
+  getCourse(@Param('id', ParseUUIDPipe) id: string) {
+    return this.yoga.getCourse(id);
   }
 
   @Roles(Role.MANAGER)
-  @Post('classes')
+  @Post('courses')
   @ApiOperation({
-    summary: 'Хичээл үүсгэх',
-    description: '`repeatWeeks > 1` бол 7 хоног тутам давтаж олон мөр үүсгэнэ.',
+    summary: 'Анги үүсгэх',
+    description:
+      'Хугацаа + долоо хоногийн гарагуудаас оролтын өдрүүд ТООЦООЛОГДОНО.',
   })
-  createClass(@Body() dto: CreateYogaClassDto) {
-    return this.yoga.createClass(dto);
+  createCourse(@Body() dto: CreateYogaCourseDto) {
+    return this.yoga.createCourse(dto);
   }
 
   @Roles(Role.MANAGER)
-  @Patch('classes/:id')
-  @ApiOperation({ summary: 'Хичээл засах / цуцлах' })
-  updateClass(
+  @Patch('courses/:id')
+  @ApiOperation({ summary: 'Анги засах / архивлах' })
+  updateCourse(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateYogaClassDto,
+    @Body() dto: UpdateYogaCourseDto,
   ) {
-    return this.yoga.updateClass(id, dto);
+    return this.yoga.updateCourse(id, dto);
   }
 
-  /**
-   * ⚠ Оролцогчтой хичээлийг устгахгүй — 409 буцаана. Оронд нь цуцална
-   * (`PATCH { cancelled: true }`), тэгвэл төлбөрийн бүртгэл үлдэнэ.
-   */
+  /** ⚠ Гишүүнтэй ангийг устгахгүй — 409. Оронд нь архивлана. */
   @Roles(Role.MANAGER)
-  @Delete('classes/:id')
-  @ApiOperation({ summary: 'Хоосон хичээл устгах' })
-  deleteClass(@Param('id', ParseUUIDPipe) id: string) {
-    return this.yoga.deleteClass(id);
+  @Delete('courses/:id')
+  @ApiOperation({ summary: 'Хоосон анги устгах' })
+  deleteCourse(@Param('id', ParseUUIDPipe) id: string) {
+    return this.yoga.deleteCourse(id);
   }
 
-  // ── Оролцогч ──
+  // ── Цагийн хуваарь ──
 
-  @Get('classes/:id/bookings')
-  @ApiOperation({ summary: 'Хичээлийн оролцогчид' })
-  listBookings(@Param('id', ParseUUIDPipe) id: string) {
-    return this.yoga.listBookings(id);
-  }
-
-  @Post('classes/:id/bookings')
+  @Get('courses/:id/schedule')
   @ApiOperation({
-    summary: 'Оролцогч нэмэх',
+    summary: 'Ангийн бүх оролт — ирцийн тоотой',
+    description: 'Огноонууд нь хадгалагддаггүй, хуваарь дээрээс тооцоологдоно.',
+  })
+  schedule(@Param('id', ParseUUIDPipe) id: string) {
+    return this.yoga.schedule(id);
+  }
+
+  @Get('courses/:id/sessions/:on')
+  @ApiOperation({ summary: 'Нэг оролтын дэлгэрэнгүй — хэн ирсэн, хэн үгүй' })
+  sessionDetail(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('on') on: string,
+  ) {
+    return this.yoga.sessionDetail(id, on);
+  }
+
+  // ── Гишүүд ──
+
+  @Get('courses/:id/enrollments')
+  @ApiOperation({ summary: 'Ангийн гишүүд — төлбөр, ирцийн тоотой' })
+  listEnrollments(@Param('id', ParseUUIDPipe) id: string) {
+    return this.yoga.listEnrollments(id);
+  }
+
+  @Post('courses/:id/enrollments')
+  @ApiOperation({
+    summary: 'Гишүүн бүртгэх',
     description:
       '`memberId` өгвөл нэрийг гишүүний бүртгэлээс авна. Өгөхгүй бол ' +
-      '`name` ЗААВАЛ — йогт гишүүн биш хүн ирж болно.',
+      '`name` ЗААВАЛ. `amountPaid` нь `amountDue`-ээс бага бол ҮЛДЭГДЭЛ үүснэ.',
   })
-  addBooking(
+  addEnrollment(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: CreateYogaBookingDto,
+    @Body() dto: CreateYogaEnrollmentDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.yoga.addBooking(id, dto, user.id);
+    return this.yoga.addEnrollment(id, dto, user.id);
   }
 
-  @Patch('bookings/:id')
-  @ApiOperation({ summary: 'Оролцогч засах — төлбөр, ирц' })
-  updateBooking(
+  @Patch('enrollments/:id')
+  @ApiOperation({ summary: 'Гишүүний мэдээлэл засах' })
+  updateEnrollment(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateYogaBookingDto,
+    @Body() dto: UpdateYogaEnrollmentDto,
   ) {
-    return this.yoga.updateBooking(id, dto);
+    return this.yoga.updateEnrollment(id, dto);
   }
 
-  @Delete('bookings/:id')
-  @ApiOperation({ summary: 'Оролцогчийг хасах' })
-  removeBooking(@Param('id', ParseUUIDPipe) id: string) {
-    return this.yoga.removeBooking(id);
+  /** ⚠ Орлуулахгүй НЭМНЭ — йогийн төлбөр хэсэгчилж ордог. */
+  @Post('enrollments/:id/payments')
+  @ApiOperation({ summary: 'Нэмэлт төлбөр хүлээн авах' })
+  addPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddPaymentDto,
+  ) {
+    return this.yoga.addPayment(id, dto);
+  }
+
+  @Delete('enrollments/:id')
+  @ApiOperation({ summary: 'Гишүүнийг ангиас хасах' })
+  removeEnrollment(@Param('id', ParseUUIDPipe) id: string) {
+    return this.yoga.removeEnrollment(id);
+  }
+
+  // ── Ирц ──
+
+  /**
+   * ⚠ Ирц бүртгэхэд ХААЛГА НЭЭГДЭНЭ (`openDoor: false` гэвэл үгүй).
+   * Терминал унасан ч ирц бүртгэгдэнэ — хариунд `door.opened` ирнэ.
+   */
+  @Post('courses/:id/attendance')
+  @ApiOperation({ summary: 'Ирц бүртгэж, хаалга нээх' })
+  markAttendance(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MarkAttendanceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.yoga.markAttendance(id, dto, user.id);
+  }
+
+  @Delete('courses/:id/attendance/:enrollmentId/:on')
+  @ApiOperation({ summary: 'Ирцийг буцаах — андуурч дарсан үед' })
+  unmarkAttendance(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('enrollmentId', ParseUUIDPipe) enrollmentId: string,
+    @Param('on') on: string,
+  ) {
+    return this.yoga.unmarkAttendance(id, enrollmentId, on);
   }
 }

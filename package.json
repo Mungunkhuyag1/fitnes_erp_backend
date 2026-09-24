@@ -39,7 +39,8 @@
     "check:capture-face": "ts-node -r tsconfig-paths/register scripts/check-capture-face.ts",
     "check:unreachable": "ts-node -r tsconfig-paths/register scripts/check-unreachable.ts",
     "check:upsert-preserve": "ts-node -r tsconfig-paths/register scripts/check-upsert-preserve.ts",
-    "check:device-validity": "ts-node -r tsconfig-paths/register scripts/check-device-validity.ts"
+    "check:device-validity": "ts-node -r tsconfig-paths/register scripts/check-device-validity.ts",
+    "check:yoga-schedule": "ts-node -r tsconfig-paths/register scripts/check-yoga-schedule.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

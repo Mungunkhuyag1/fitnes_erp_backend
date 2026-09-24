@@ -1,24 +1,33 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
-  IsISO8601,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
 
-export class CreateYogaClassDto {
-  @ApiProperty({ example: 'Хатха йог — үдээс хойш' })
+/** `YYYY-MM-DD` — цаггүй огноо. */
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** `HH:MM` эсвэл `HH:MM:SS`. */
+const TIME = /^\d{2}:\d{2}(:\d{2})?$/;
+
+export class CreateYogaCourseDto {
+  @ApiProperty({ example: 'Хатха йог — оройн анги' })
   @IsString()
   @MinLength(2)
   @MaxLength(120)
-  title: string;
+  name: string;
 
   @ApiPropertyOptional({ example: 'Сараа багш' })
   @IsOptional()
@@ -26,9 +35,34 @@ export class CreateYogaClassDto {
   @MaxLength(120)
   instructor?: string;
 
-  @ApiProperty({ example: '2026-09-25T11:00:00.000Z' })
-  @IsISO8601()
-  startsAt: string;
+  @ApiProperty({ example: '2026-09-25' })
+  @Matches(DAY, { message: 'starts_on нь YYYY-MM-DD байх ёстой' })
+  startsOn: string;
+
+  @ApiProperty({ example: '2026-10-25' })
+  @Matches(DAY, { message: 'ends_on нь YYYY-MM-DD байх ёстой' })
+  endsOn: string;
+
+  /**
+   * Долоо хоногийн аль өдрүүд. 0 = Ням … 6 = Бямба.
+   *
+   * ⚠ ЗААВАЛ нэгийг сонгоно. Хоосон орхивол ямар ч оролт үүсэхгүй
+   * бөгөөд ажилтан «анги үүссэн» гэж бодоод хоосон хуваарьтай үлдэнэ.
+   */
+  @ApiProperty({ example: [1, 3, 5], description: '0=Ням … 6=Бямба' })
+  @IsArray()
+  @ArrayNotEmpty({ message: 'Долоо хоногийн өдрөө сонгоно уу' })
+  @ArrayMaxSize(7)
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  weekdays: number[];
+
+  @ApiPropertyOptional({ example: '19:00' })
+  @IsOptional()
+  @Matches(TIME, { message: 'Цаг нь HH:MM байх ёстой' })
+  startTime?: string;
 
   @ApiPropertyOptional({ example: 60 })
   @IsOptional()
@@ -43,10 +77,10 @@ export class CreateYogaClassDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(200)
+  @Max(500)
   capacity?: number;
 
-  @ApiPropertyOptional({ example: 25000, description: 'Нэг хүний төлбөр (₮)' })
+  @ApiPropertyOptional({ example: 250000, description: 'Ангийн үнэ (₮)' })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -58,37 +92,15 @@ export class CreateYogaClassDto {
   @IsString()
   @MaxLength(500)
   note?: string;
-
-  /**
-   * Долоо хоног тутам ХЭДЭН удаа давтаж үүсгэх вэ.
-   *
-   * ★ ЯАГААД ДҮРЭМ БИШ, МӨР ВЭ
-   *
-   * Хуваарийг дүрмээр хадгалбал нэг өдрийн хичээлийг цуцлах, багшийг
-   * нь солих, оролцогч хавсаргах боломжгүй болно. Бодит мөр үүсгэх нь
-   * илүү олон мөр гаргах ч ажилтан тус бүрийг нь чөлөөтэй засна.
-   *
-   * ⚠ 1 = зөвхөн тэр өдөр. Дээд тал нь 52 (нэг жил).
-   */
-  @ApiPropertyOptional({
-    example: 8,
-    description: '7 хоног тутам давтах тоо (1 = давтахгүй)',
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(52)
-  repeatWeeks?: number;
 }
 
-export class UpdateYogaClassDto {
+export class UpdateYogaCourseDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   @MinLength(2)
   @MaxLength(120)
-  title?: string;
+  name?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -98,8 +110,29 @@ export class UpdateYogaClassDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsISO8601()
-  startsAt?: string;
+  @Matches(DAY)
+  startsOn?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Matches(DAY)
+  endsOn?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(7)
+  @Type(() => Number)
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
+  weekdays?: number[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Matches(TIME)
+  startTime?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -114,7 +147,7 @@ export class UpdateYogaClassDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(200)
+  @Max(500)
   capacity?: number;
 
   @ApiPropertyOptional()
@@ -130,33 +163,37 @@ export class UpdateYogaClassDto {
   @MaxLength(500)
   note?: string;
 
-  /** `true` → цуцлах, `false` → цуцлалтыг буцаах. */
+  /** `true` → архивлах (жагсаалтаас нуух). Устгахгүй. */
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
-  cancelled?: boolean;
+  archived?: boolean;
 }
 
-export class ListYogaClassesDto {
-  @ApiPropertyOptional({ description: 'Эндээс хойшхи (ISO)' })
+export class ListYogaCoursesDto {
+  @ApiPropertyOptional({ description: 'Нэр, багшаар хайх' })
   @IsOptional()
-  @IsISO8601()
-  from?: string;
+  @IsString()
+  @MaxLength(120)
+  q?: string;
 
-  @ApiPropertyOptional({ description: 'Эн хүртэлх (ISO)' })
+  @ApiPropertyOptional({
+    enum: ['upcoming', 'active', 'finished'],
+    description: 'Хуваарийн төлөв',
+  })
   @IsOptional()
-  @IsISO8601()
-  to?: string;
+  @IsIn(['upcoming', 'active', 'finished'])
+  state?: 'upcoming' | 'active' | 'finished';
 
-  /** Цуцалсныг ч харуулах уу. Анхдагчаар ҮГҮЙ. */
+  /** Архивласныг ч харуулах уу. Анхдагчаар ҮГҮЙ. */
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
-  includeCancelled?: boolean;
+  includeArchived?: boolean;
 }
 
-export class CreateYogaBookingDto {
+export class CreateYogaEnrollmentDto {
   /**
    * WinFit-ийн гишүүн бол холбоно.
    *
@@ -168,10 +205,7 @@ export class CreateYogaBookingDto {
   @IsUUID()
   memberId?: string;
 
-  @ApiPropertyOptional({
-    example: 'Дорж Бат',
-    description: 'Гишүүн биш бол ЗААВАЛ',
-  })
+  @ApiPropertyOptional({ example: 'Дорж Бат', description: 'Гишүүн биш бол ЗААВАЛ' })
   @IsOptional()
   @IsString()
   @MinLength(2)
@@ -184,18 +218,25 @@ export class CreateYogaBookingDto {
   @MaxLength(32)
   phone?: string;
 
-  @ApiPropertyOptional({ example: 25000 })
+  /** Төлөх ёстой дүн. Өгөхгүй бол ангийн үнэ. */
+  @ApiPropertyOptional({ example: 250000 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  amount?: number;
+  amountDue?: number;
 
-  /** `true` → мөнгө хараахан аваагүй (авлага). */
-  @ApiPropertyOptional()
+  /**
+   * Бүртгэх үед ХҮЛЭЭН АВСАН дүн.
+   *
+   * Төлөх ёстойгоос бага бол ҮЛДЭГДЭЛ үүснэ. Тэглэвэл бүрэн авлага.
+   */
+  @ApiPropertyOptional({ example: 100000 })
   @IsOptional()
-  @IsBoolean()
-  payLater?: boolean;
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  amountPaid?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -204,7 +245,7 @@ export class CreateYogaBookingDto {
   note?: string;
 }
 
-export class UpdateYogaBookingDto {
+export class UpdateYogaEnrollmentDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
@@ -223,23 +264,50 @@ export class UpdateYogaBookingDto {
   @Type(() => Number)
   @IsInt()
   @Min(0)
-  amount?: number;
+  amountDue?: number;
 
-  /** `true` → төлөгдсөн, `false` → авлага болгох. */
+  /** Нийт хүлээн авсан дүнг ОРЛУУЛНА (нэмэхгүй). */
   @ApiPropertyOptional()
   @IsOptional()
-  @IsBoolean()
-  paid?: boolean;
-
-  /** `true` → ирсэн, `false` → ирээгүй. */
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsBoolean()
-  attended?: boolean;
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  amountPaid?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   @MaxLength(500)
   note?: string;
+}
+
+export class AddPaymentDto {
+  /** Одоо хүлээн авсан дүн — НЭМЭГДЭНЭ. */
+  @ApiProperty({ example: 50000 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  amount: number;
+}
+
+export class MarkAttendanceDto {
+  @ApiProperty()
+  @IsUUID()
+  enrollmentId: string;
+
+  @ApiProperty({ example: '2026-09-25' })
+  @Matches(DAY, { message: 'Огноо нь YYYY-MM-DD байх ёстой' })
+  sessionOn: string;
+
+  /**
+   * Ирц бүртгэхэд хаалгыг НЭЭХ үү.
+   *
+   * ⚠ Анхдагчаар ТИЙМ: ресепшн ирцийг яг хаалган дээр бүртгэдэг.
+   * Терминал холбогдоогүй ч ирц нь бүртгэгдэнэ — хаалга нээгдсэн
+   * эсэхийг хариунд тусад нь хэлнэ.
+   */
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  openDoor?: boolean;
 }

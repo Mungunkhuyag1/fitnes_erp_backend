@@ -1,19 +1,23 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Member } from '../member/member.entity';
-import { YogaBooking } from './yoga-booking.entity';
-import { YogaClass } from './yoga-class.entity';
+import { YogaAttendance } from './yoga-attendance.entity';
+import { YogaCourse } from './yoga-course.entity';
+import { YogaEnrollment } from './yoga-enrollment.entity';
 import { YogaController } from './yoga.controller';
 import { YogaService } from './yoga.service';
 
 /**
  * Йог — заалны бүртгэлээс ТУСДАА.
  *
- * ⚠ `Member`-ыг зөвхөн НЭР авахад уншина. Гишүүнчлэл, терминал,
- * outbox аль нэгтэй нь холбогдохгүй: хаалгыг админ өөрөө нээдэг.
+ * ⚠ `Member`-ыг зөвхөн НЭР авахад уншина. Гишүүнчлэл, outbox-той
+ * холбогдохгүй. Терминалтай ГАНЦ холбоос нь ирц бүртгэхэд хаалга
+ * нээх (`DEVICE_GATEWAY` нь `@Global` модулиас ирнэ).
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([YogaClass, YogaBooking, Member])],
+  imports: [
+    TypeOrmModule.forFeature([YogaCourse, YogaEnrollment, YogaAttendance, Member]),
+  ],
   controllers: [YogaController],
   providers: [YogaService],
   exports: [YogaService],

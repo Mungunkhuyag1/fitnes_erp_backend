@@ -1,210 +1,320 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, IsNull, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { DEVICE_GATEWAY, type DeviceGateway } from '../device/device.gateway';
 import { Member } from '../member/member.entity';
 import {
-  CreateYogaBookingDto,
-  CreateYogaClassDto,
-  ListYogaClassesDto,
-  UpdateYogaBookingDto,
-  UpdateYogaClassDto,
+  AddPaymentDto,
+  CreateYogaCourseDto,
+  CreateYogaEnrollmentDto,
+  ListYogaCoursesDto,
+  MarkAttendanceDto,
+  UpdateYogaCourseDto,
+  UpdateYogaEnrollmentDto,
 } from './dto/yoga.dto';
-import { YogaBooking } from './yoga-booking.entity';
-import { YogaClass } from './yoga-class.entity';
+import { YogaAttendance } from './yoga-attendance.entity';
+import { YogaCourse } from './yoga-course.entity';
+import { YogaEnrollment } from './yoga-enrollment.entity';
+import {
+  courseSessions,
+  courseState,
+  nextSession,
+  todayIn,
+  type CourseState,
+} from './yoga.schedule';
 
-export interface YogaClassView {
+export interface YogaCourseView {
   id: string;
-  title: string;
+  name: string;
   instructor: string | null;
-  startsAt: Date;
+  startsOn: string;
+  endsOn: string;
+  weekdays: number[];
+  startTime: string;
   durationMin: number;
   capacity: number | null;
   price: number;
   note: string | null;
-  cancelledAt: Date | null;
-  /** Бүртгүүлсэн хүний тоо. */
-  booked: number;
-  /** Ирсэн гэж тэмдэглэгдсэн. */
-  attended: number;
-  /** Хүлээн авсан мөнгө. */
+  archivedAt: Date | null;
+  /** Хуваарийн төлөв — эхлээгүй / явагдаж буй / дууссан. */
+  state: CourseState;
+  /** Нийт оролтын тоо (тооцоолсон). */
+  sessions: number;
+  /** Өнөөдөр эсвэл дараагийн оролт. `null` = дууссан. */
+  nextOn: string | null;
+  enrolled: number;
+  /** Төлөх ёстой нийт. */
+  due: number;
+  /** Хүлээн авсан нийт. */
   paid: number;
-  /** Бүртгүүлсэн ч мөнгө нь ирээгүй. */
+  /** Үлдэгдэл = due − paid. */
   owed: number;
 }
 
 /**
- * Йогийн анги ба оролцогчид.
+ * Йогийн анги, гишүүд, ирц.
  *
- * ★ ФИТНЕСЭЭС БҮРЭН ТУСДАА
+ * ★ ЗААЛНААС ТУСДАА
  *
- * Энэ модуль `memberships`, `access_events`, терминал, outbox аль нэгд
- * нь ХҮРДЭГГҮЙ. Йог нь:
+ * `memberships`, `access_events`, outbox аль нэгд нь ХҮРДЭГГҮЙ. Йогийн
+ * мөнгө заалны орлогод ОРОХГҮЙ — захиалагч тусдаа тооцоо хүссэн.
  *
- *   • Хугацаагаар БИШ, ХИЧЭЭЛЭЭР зарагдана
- *   • Оролцогч нь WinFit-ийн гишүүн байх албагүй
- *   • Хаалгыг админ ӨӨРӨӨ нээж өгдөг — терминал оролцохгүй
- *
- * ⚠ Йогийн мөнгийг заалны орлогод НЭМЭХГҮЙ. Захиалагч тусдаа тооцоо
- * хүссэн; нэгтгэвэл аль үйлчилгээ хэр ашигтайг ялгах боломжгүй болно.
+ * ⚠ ГАНЦ ХОЛБОГДОХ ЦЭГ нь ХААЛГА: ирц бүртгэхэд терминалыг зайнаас
+ * нээнэ. Энэ нь өгөгдөл БИЧИХГҮЙ (`openDoor`) тул `DEVICE_WRITES=off`
+ * үед ч ажиллана.
  */
 @Injectable()
 export class YogaService {
   private readonly log = new Logger(YogaService.name);
 
   constructor(
-    @InjectRepository(YogaClass)
-    private readonly classes: Repository<YogaClass>,
-    @InjectRepository(YogaBooking)
-    private readonly bookings: Repository<YogaBooking>,
+    @InjectRepository(YogaCourse)
+    private readonly courses: Repository<YogaCourse>,
+    @InjectRepository(YogaEnrollment)
+    private readonly enrollments: Repository<YogaEnrollment>,
+    @InjectRepository(YogaAttendance)
+    private readonly attendance: Repository<YogaAttendance>,
     @InjectRepository(Member) private readonly members: Repository<Member>,
+    @Inject(DEVICE_GATEWAY) private readonly device: DeviceGateway,
+    private readonly config: ConfigService,
+    private readonly ds: DataSource,
   ) {}
+
+  private get tz(): string {
+    return this.config.get<string>('timezone') ?? 'Asia/Ulaanbaatar';
+  }
+
+  private get today(): string {
+    return todayIn(this.tz);
+  }
 
   // ══════════════════════════════════════════════════════════════
   //  Анги
   // ══════════════════════════════════════════════════════════════
 
-  /**
-   * Хичээл үүсгэх. `repeatWeeks > 1` бол 7 хоног тутам давтана.
-   *
-   * ⚠ Давталтыг ДҮРМЭЭР биш, бодит МӨРӨӨР үүсгэнэ. Дүрмээр хадгалбал
-   * нэг өдрийн хичээлийг цуцлах, багшийг нь солих, оролцогч хавсаргах
-   * боломжгүй болно.
-   */
-  async createClass(dto: CreateYogaClassDto): Promise<YogaClassView[]> {
-    const weeks = dto.repeatWeeks ?? 1;
-    const first = new Date(dto.startsAt);
-    if (Number.isNaN(first.getTime())) {
-      throw new BadRequestException('Огноо буруу байна');
+  async createCourse(dto: CreateYogaCourseDto): Promise<YogaCourseView> {
+    if (dto.endsOn < dto.startsOn) {
+      throw new BadRequestException('Дуусах огноо эхлэхээсээ өмнө байна');
     }
-
-    const rows: YogaClass[] = [];
-    for (let i = 0; i < weeks; i++) {
-      const startsAt = new Date(first.getTime() + i * 7 * 86_400_000);
-      rows.push(
-        this.classes.create({
-          title: dto.title.trim(),
-          instructor: dto.instructor?.trim() || null,
-          startsAt,
-          durationMin: dto.durationMin ?? 60,
-          capacity: dto.capacity ?? null,
-          price: String(dto.price ?? 0),
-          note: dto.note?.trim() || null,
-        }),
-      );
-    }
-    const saved = await this.classes.save(rows);
-    this.log.log(`Йогийн хичээл үүсгэв: ${dto.title} × ${saved.length}`);
-    // Шинэ анги хоосон тул тоолох хэрэггүй — тэглэж буцаана.
-    return saved.map((c) => this.view(c, { booked: 0, attended: 0, paid: 0, owed: 0 }));
+    const saved = await this.courses.save(
+      this.courses.create({
+        name: dto.name.trim(),
+        instructor: dto.instructor?.trim() || null,
+        startsOn: dto.startsOn,
+        endsOn: dto.endsOn,
+        weekdays: [...new Set(dto.weekdays)].sort((a, b) => a - b),
+        startTime: dto.startTime ?? '19:00',
+        durationMin: dto.durationMin ?? 60,
+        capacity: dto.capacity ?? null,
+        price: String(dto.price ?? 0),
+        note: dto.note?.trim() || null,
+      }),
+    );
+    this.log.log(`Йогийн анги: ${saved.name} (${saved.startsOn}→${saved.endsOn})`);
+    return this.getCourse(saved.id);
   }
 
-  async listClasses(q: ListYogaClassesDto): Promise<YogaClassView[]> {
+  async listCourses(q: ListYogaCoursesDto): Promise<YogaCourseView[]> {
+    const qb = this.courses.createQueryBuilder('c');
+    if (!q.includeArchived) qb.andWhere('c.archived_at IS NULL');
+    if (q.q?.trim()) {
+      const t = `%${q.q.trim()}%`;
+      qb.andWhere('(c.name ILIKE :t OR c.instructor ILIKE :t)', { t });
+    }
     /*
-     * Анхдагчаар ӨНӨӨДРӨӨС хойш 30 хоног. Бүх түүхийг нэг дор татвал
-     * жилийн дараа хуудас хэдэн зуун мөртэй болно.
+     * ⚠ Төлвийг SQL дээр шүүнэ, санах ойд биш: ирээдүйд анги олон
+     * болоход бүгдийг татаад шүүх нь дэмий.
      */
-    const from = q.from ? new Date(q.from) : startOfToday();
-    const to = q.to
-      ? new Date(q.to)
-      : new Date(from.getTime() + 30 * 86_400_000);
+    const today = this.today;
+    if (q.state === 'upcoming') qb.andWhere('c.starts_on > :d', { d: today });
+    if (q.state === 'finished') qb.andWhere('c.ends_on < :d', { d: today });
+    if (q.state === 'active') {
+      qb.andWhere('c.starts_on <= :d AND c.ends_on >= :d', { d: today });
+    }
+    qb.orderBy('c.starts_on', 'DESC');
 
-    const rows = await this.classes.find({
-      where: {
-        startsAt: Between(from, to),
-        ...(q.includeCancelled ? {} : { cancelledAt: IsNull() }),
-      },
-      order: { startsAt: 'ASC' },
-    });
+    const rows = await qb.getMany();
     if (!rows.length) return [];
-
     const stats = await this.statsFor(rows.map((r) => r.id));
     return rows.map((c) => this.view(c, stats.get(c.id)));
   }
 
-  async getClass(id: string): Promise<YogaClassView> {
-    const c = await this.classes.findOne({ where: { id } });
-    if (!c) throw new NotFoundException('Хичээл олдсонгүй');
+  async getCourse(id: string): Promise<YogaCourseView> {
+    const c = await this.courses.findOne({ where: { id } });
+    if (!c) throw new NotFoundException('Анги олдсонгүй');
     const stats = await this.statsFor([id]);
     return this.view(c, stats.get(id));
   }
 
-  async updateClass(id: string, dto: UpdateYogaClassDto): Promise<YogaClassView> {
-    const c = await this.classes.findOne({ where: { id } });
-    if (!c) throw new NotFoundException('Хичээл олдсонгүй');
+  async updateCourse(
+    id: string,
+    dto: UpdateYogaCourseDto,
+  ): Promise<YogaCourseView> {
+    const c = await this.courses.findOne({ where: { id } });
+    if (!c) throw new NotFoundException('Анги олдсонгүй');
 
-    if (dto.title !== undefined) c.title = dto.title.trim();
+    if (dto.name !== undefined) c.name = dto.name.trim();
     if (dto.instructor !== undefined) c.instructor = dto.instructor.trim() || null;
-    if (dto.startsAt !== undefined) c.startsAt = new Date(dto.startsAt);
+    if (dto.startsOn !== undefined) c.startsOn = dto.startsOn;
+    if (dto.endsOn !== undefined) c.endsOn = dto.endsOn;
+    if (dto.weekdays !== undefined) {
+      c.weekdays = [...new Set(dto.weekdays)].sort((a, b) => a - b);
+    }
+    if (dto.startTime !== undefined) c.startTime = dto.startTime;
     if (dto.durationMin !== undefined) c.durationMin = dto.durationMin;
     if (dto.capacity !== undefined) c.capacity = dto.capacity;
     if (dto.price !== undefined) c.price = String(dto.price);
     if (dto.note !== undefined) c.note = dto.note.trim() || null;
-    if (dto.cancelled !== undefined) {
-      c.cancelledAt = dto.cancelled ? new Date() : null;
+    if (dto.archived !== undefined) {
+      c.archivedAt = dto.archived ? new Date() : null;
+    }
+    if (c.endsOn < c.startsOn) {
+      throw new BadRequestException('Дуусах огноо эхлэхээсээ өмнө байна');
     }
 
-    await this.classes.save(c);
-    return this.getClass(id);
+    await this.courses.save(c);
+    return this.getCourse(id);
   }
 
   /**
-   * Хичээл устгах.
+   * Анги устгах.
    *
-   * ⚠ Оролцогчтой болсон хичээлийг УСТГАХГҮЙ — төлбөрийн бүртгэл
-   * алга болно. Оронд нь ЦУЦЛАХ (`cancelled`) — мөр нь үлдэж, хэн
-   * хэдийг төлсөн нь харагдсаар байна.
+   * ⚠ Гишүүнтэй ангийг УСТГАХГҮЙ — төлбөр, ирцийн бүртгэл алга болно.
+   * Оронд нь АРХИВЛАНА (`archived`): жагсаалтаас нуугдах ч өгөгдөл
+   * үлдэнэ.
    */
-  async deleteClass(id: string): Promise<{ ok: true }> {
-    const n = await this.bookings.count({ where: { classId: id } });
+  async deleteCourse(id: string): Promise<{ ok: true }> {
+    const n = await this.enrollments.count({ where: { courseId: id } });
     if (n > 0) {
       throw new ConflictException(
-        `${n} хүн бүртгүүлсэн байна — устгах биш ЦУЦЛАНА уу ` +
-          '(төлбөрийн бүртгэл хадгалагдана).',
+        `${n} хүн бүртгүүлсэн байна — устгах биш АРХИВЛАНА уу ` +
+          '(төлбөр, ирцийн бүртгэл хадгалагдана).',
       );
     }
-    const r = await this.classes.delete(id);
-    if (!r.affected) throw new NotFoundException('Хичээл олдсонгүй');
+    const r = await this.courses.delete(id);
+    if (!r.affected) throw new NotFoundException('Анги олдсонгүй');
     return { ok: true as const };
   }
 
   // ══════════════════════════════════════════════════════════════
-  //  Оролцогч
+  //  Цагийн хуваарь
   // ══════════════════════════════════════════════════════════════
 
-  async listBookings(classId: string) {
-    const rows = await this.bookings.find({
-      where: { classId },
-      order: { createdAt: 'ASC' },
-    });
-    return rows.map((b) => ({
-      id: b.id,
-      memberId: b.memberId,
-      name: b.name,
-      phone: b.phone,
-      amount: Number(b.amount),
-      paidAt: b.paidAt,
-      attendedAt: b.attendedAt,
-      note: b.note,
-      createdAt: b.createdAt,
-    }));
+  /**
+   * Ангийн бүх оролт — ирцийн тоотой нь хамт.
+   *
+   * ⚠ Өнгөрсөн, ирээдүйг ялгана: ирээдүйн оролт дээр «хэн ч ирээгүй»
+   * гэж улаанаар харуулбал ажилтныг дэмий сандраана.
+   */
+  async schedule(courseId: string) {
+    const c = await this.courses.findOne({ where: { id: courseId } });
+    if (!c) throw new NotFoundException('Анги олдсонгүй');
+
+    const days = courseSessions(c);
+    const enrolled = await this.enrollments.count({ where: { courseId } });
+
+    const rows = await this.attendance.query<
+      { session_on: string; n: string }[]
+    >(
+      `SELECT to_char(a.session_on, 'YYYY-MM-DD') AS session_on, count(*) AS n
+         FROM yoga_attendance a
+         JOIN yoga_enrollments e ON e.id = a.enrollment_id
+        WHERE e.course_id = $1
+        GROUP BY 1`,
+      [courseId],
+    );
+    const byDay = new Map(rows.map((r) => [r.session_on, Number(r.n)]));
+
+    const today = this.today;
+    return {
+      courseId,
+      startTime: c.startTime,
+      durationMin: c.durationMin,
+      enrolled,
+      today,
+      sessions: days.map((d) => ({
+        on: d,
+        attended: byDay.get(d) ?? 0,
+        past: d < today,
+        isToday: d === today,
+      })),
+    };
   }
 
-  async addBooking(
-    classId: string,
-    dto: CreateYogaBookingDto,
+  // ══════════════════════════════════════════════════════════════
+  //  Гишүүд
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * Ангийн гишүүд — төлбөрийн байдал, ирцийн тоотой.
+   *
+   * Шүүх/эрэмбэлэхийг ДЭЛГЭЦ хийнэ: нэг ангид хамгийн ихдээ хэдэн
+   * арван хүн байх тул бүгдийг өгөөд клиент талд шүүх нь хуудаслалт,
+   * эрэмбийн SQL бичихээс энгийн бөгөөд шуурхай.
+   */
+  async listEnrollments(courseId: string) {
+    const rows = await this.enrollments.query<
+      {
+        id: string;
+        member_id: string | null;
+        name: string;
+        phone: string | null;
+        amount_due: string;
+        amount_paid: string;
+        note: string | null;
+        created_at: Date;
+        attended: string;
+        last_on: string | null;
+      }[]
+    >(
+      `SELECT e.id, e.member_id, e.name, e.phone, e.amount_due, e.amount_paid,
+              e.note, e.created_at,
+              count(a.*)                               AS attended,
+              to_char(max(a.session_on), 'YYYY-MM-DD') AS last_on
+         FROM yoga_enrollments e
+         LEFT JOIN yoga_attendance a ON a.enrollment_id = e.id
+        WHERE e.course_id = $1
+        GROUP BY e.id
+        ORDER BY e.created_at ASC`,
+      [courseId],
+    );
+    return rows.map((r) => {
+      const due = Number(r.amount_due);
+      const paid = Number(r.amount_paid);
+      return {
+        id: r.id,
+        memberId: r.member_id,
+        name: r.name,
+        phone: r.phone,
+        amountDue: due,
+        amountPaid: paid,
+        owed: Math.max(0, due - paid),
+        /** `paid` · `partial` · `unpaid` — дэлгэцийн шүүлтүүрт. */
+        payment: paid >= due ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
+        attended: Number(r.attended),
+        lastOn: r.last_on,
+        note: r.note,
+        createdAt: r.created_at,
+      };
+    });
+  }
+
+  async addEnrollment(
+    courseId: string,
+    dto: CreateYogaEnrollmentDto,
     staffUserId: string,
   ) {
-    const c = await this.classes.findOne({ where: { id: classId } });
-    if (!c) throw new NotFoundException('Хичээл олдсонгүй');
-    if (c.cancelledAt) {
-      throw new BadRequestException('Цуцалсан хичээлд бүртгэхгүй');
-    }
+    const c = await this.courses.findOne({ where: { id: courseId } });
+    if (!c) throw new NotFoundException('Анги олдсонгүй');
+    if (c.archivedAt) throw new BadRequestException('Архивласан ангид бүртгэхгүй');
 
     /*
      * Нэрийг ГИШҮҮНЭЭС авна. Гараар бичсэн нэр гишүүний бүртгэлтэй
@@ -217,178 +327,272 @@ export class YogaService {
       if (!m) throw new NotFoundException('Гишүүн олдсонгүй');
       name = m.name;
       phone = phone ?? m.phone;
-
-      const dup = await this.bookings.findOne({
-        where: { classId, memberId: dto.memberId },
+      const dup = await this.enrollments.findOne({
+        where: { courseId, memberId: dto.memberId },
       });
       if (dup) throw new ConflictException('Энэ гишүүн аль хэдийн бүртгэгдсэн');
     }
-    if (!name) {
-      throw new BadRequestException('Нэр эсвэл гишүүнийг заана уу');
-    }
+    if (!name) throw new BadRequestException('Нэр эсвэл гишүүнийг заана уу');
 
     if (c.capacity !== null) {
-      const n = await this.bookings.count({ where: { classId } });
+      const n = await this.enrollments.count({ where: { courseId } });
       if (n >= c.capacity) {
         throw new ConflictException(
-          `Хичээл дүүрсэн (${c.capacity} хүн). Багтаамжийг нэмэгдүүлнэ үү.`,
+          `Анги дүүрсэн (${c.capacity} хүн). Багтаамжийг нэмэгдүүлнэ үү.`,
         );
       }
     }
 
-    const amount = dto.amount ?? Number(c.price);
-    const saved = await this.bookings.save(
-      this.bookings.create({
-        classId,
+    const due = dto.amountDue ?? Number(c.price);
+    const paid = dto.amountPaid ?? 0;
+    const saved = await this.enrollments.save(
+      this.enrollments.create({
+        courseId,
         memberId: dto.memberId ?? null,
         name,
         phone,
-        amount: String(amount),
-        // `payLater` → авлага. Гишүүнчлэлтэй ижил дүрэм.
-        paidAt: dto.payLater ? null : new Date(),
+        amountDue: String(due),
+        amountPaid: String(paid),
         note: dto.note?.trim() || null,
         staffUserId,
       }),
     );
-    this.log.log(`Йог: ${name} → ${c.title} (${amount}₮)`);
+    this.log.log(
+      `Йог: ${name} → ${c.name} (${paid}/${due}₮${paid < due ? ' — үлдэгдэлтэй' : ''})`,
+    );
     return saved;
   }
 
-  async updateBooking(id: string, dto: UpdateYogaBookingDto) {
-    const b = await this.bookings.findOne({ where: { id } });
-    if (!b) throw new NotFoundException('Бүртгэл олдсонгүй');
-
-    if (dto.name !== undefined) b.name = dto.name.trim();
-    if (dto.phone !== undefined) b.phone = dto.phone.trim() || null;
-    if (dto.amount !== undefined) b.amount = String(dto.amount);
-    if (dto.note !== undefined) b.note = dto.note.trim() || null;
-    /*
-     * ⚠ Аль хэдийн төлөгдсөнийг ДАХИН тэмдэглэвэл анхны огноог нь
-     * ХЭВЭЭР үлдээнэ — кассын тайлан дээр огноо үсрэх ёсгүй.
-     */
-    if (dto.paid !== undefined) {
-      b.paidAt = dto.paid ? (b.paidAt ?? new Date()) : null;
-    }
-    if (dto.attended !== undefined) {
-      b.attendedAt = dto.attended ? (b.attendedAt ?? new Date()) : null;
-    }
-
-    await this.bookings.save(b);
-    return b;
+  async updateEnrollment(id: string, dto: UpdateYogaEnrollmentDto) {
+    const e = await this.enrollments.findOne({ where: { id } });
+    if (!e) throw new NotFoundException('Бүртгэл олдсонгүй');
+    if (dto.name !== undefined) e.name = dto.name.trim();
+    if (dto.phone !== undefined) e.phone = dto.phone.trim() || null;
+    if (dto.amountDue !== undefined) e.amountDue = String(dto.amountDue);
+    if (dto.amountPaid !== undefined) e.amountPaid = String(dto.amountPaid);
+    if (dto.note !== undefined) e.note = dto.note.trim() || null;
+    await this.enrollments.save(e);
+    return e;
   }
 
-  async removeBooking(id: string): Promise<{ ok: true }> {
-    const r = await this.bookings.delete(id);
+  /**
+   * Нэмэлт төлбөр хүлээн авах — үлдэгдэл дээр НЭМНЭ.
+   *
+   * ⚠ Орлуулахгүй НЭМНЭ: йогийн төлбөр хэсэгчилж ордог бөгөөд
+   * ажилтан «одоо хэдийг авсан»-аа бичих нь «нийт хэд болсон»-оос
+   * хамаагүй бага алдаатай.
+   */
+  async addPayment(id: string, dto: AddPaymentDto) {
+    const e = await this.enrollments.findOne({ where: { id } });
+    if (!e) throw new NotFoundException('Бүртгэл олдсонгүй');
+    e.amountPaid = String(Number(e.amountPaid) + dto.amount);
+    await this.enrollments.save(e);
+    this.log.log(`Йог төлбөр: ${e.name} +${dto.amount}₮`);
+    return {
+      ok: true as const,
+      amountPaid: Number(e.amountPaid),
+      owed: Math.max(0, Number(e.amountDue) - Number(e.amountPaid)),
+    };
+  }
+
+  async removeEnrollment(id: string): Promise<{ ok: true }> {
+    const r = await this.enrollments.delete(id);
     if (!r.affected) throw new NotFoundException('Бүртгэл олдсонгүй');
     return { ok: true as const };
   }
 
   // ══════════════════════════════════════════════════════════════
-  //  Товч тоо
+  //  Ирц
   // ══════════════════════════════════════════════════════════════
 
   /**
-   * Заасан хугацааны нэгтгэл — йогийн дэлгэцийн дээд хэсэгт.
+   * Ирц бүртгэж, ХААЛГЫГ НЭЭНЭ.
    *
-   * ⚠ Заалны орлоготой НЭГТГЭХГҮЙ. Захиалагч тусдаа тооцоо хүссэн;
-   * нэгтгэвэл аль үйлчилгээ хэр ашигтайг ялгах боломжгүй болно.
+   * ★ ХАЯЛГА НЭЭХ НЬ ГОЛ ХЭРЭГЛЭЭ
+   *
+   * Ресепшн ирцийг яг хаалган дээр бүртгэдэг. Тусад нь «хаалга нээх»
+   * товч дарах шаардлагатай бол нэг нь мартагдаж, дараалал үүснэ.
+   *
+   * ⚠ ТЕРМИНАЛ УНАСАН Ч ИРЦ БҮРТГЭГДЭНЭ. Хаалга нээгдсэн эсэхийг
+   * хариунд ТУСАД нь хэлнэ — бүртгэл нь мөнгөтэй холбоотой тул
+   * төхөөрөмжийн эвдрэлээс болж алдагдах ёсгүй.
    */
-  async summary(from?: string, to?: string) {
-    const start = from ? new Date(from) : startOfToday();
-    const end = to ? new Date(to) : new Date(start.getTime() + 30 * 86_400_000);
+  async markAttendance(
+    courseId: string,
+    dto: MarkAttendanceDto,
+    staffUserId: string,
+  ) {
+    const c = await this.courses.findOne({ where: { id: courseId } });
+    if (!c) throw new NotFoundException('Анги олдсонгүй');
 
-    const [row] = await this.bookings.query<
-      {
-        classes: string;
-        bookings: string;
-        attended: string;
-        paid: string;
-        owed: string;
-      }[]
+    const e = await this.enrollments.findOne({
+      where: { id: dto.enrollmentId, courseId },
+    });
+    if (!e) throw new NotFoundException('Энэ ангид тийм бүртгэл алга');
+
+    // Хуваарьт байхгүй өдрийг хүлээж авахгүй — бичиг баримт бохирдоно.
+    if (!courseSessions(c).includes(dto.sessionOn)) {
+      throw new BadRequestException(
+        `${dto.sessionOn} нь энэ ангийн хуваарьт байхгүй байна`,
+      );
+    }
+
+    /*
+     * ⚠ Давхар дарахад алдаа шидэхгүй. Ресепшн хоёр удаа дарах нь
+     * элбэг бөгөөд тэр үед хаалга нээгдэх ёстой — «аль хэдийн
+     * бүртгэгдсэн» гэж зогсоовол хүн гадаа үлдэнэ.
+     */
+    const existing = await this.attendance.findOne({
+      where: { enrollmentId: e.id, sessionOn: dto.sessionOn },
+    });
+    if (!existing) {
+      await this.attendance.save(
+        this.attendance.create({
+          enrollmentId: e.id,
+          sessionOn: dto.sessionOn,
+          staffUserId,
+        }),
+      );
+    }
+
+    let door: { opened: boolean; error?: string } = { opened: false };
+    if (dto.openDoor !== false) {
+      try {
+        await this.device.openDoor();
+        door = { opened: true };
+      } catch (err) {
+        door = { opened: false, error: (err as Error).message };
+        this.log.warn(`Йог: хаалга нээгдсэнгүй — ${(err as Error).message}`);
+      }
+    }
+
+    this.log.log(
+      `Йог ирц: ${e.name} · ${dto.sessionOn}${door.opened ? ' · хаалга нээв' : ''}`,
+    );
+    return { ok: true as const, already: !!existing, door };
+  }
+
+  /** Ирцийг буцаах — андуурч дарсан үед. */
+  async unmarkAttendance(
+    courseId: string,
+    enrollmentId: string,
+    sessionOn: string,
+  ): Promise<{ ok: true }> {
+    const e = await this.enrollments.findOne({
+      where: { id: enrollmentId, courseId },
+    });
+    if (!e) throw new NotFoundException('Энэ ангид тийм бүртгэл алга');
+    await this.attendance.delete({ enrollmentId, sessionOn });
+    return { ok: true as const };
+  }
+
+  /** Нэг оролтын дэлгэрэнгүй — хэн ирсэн, хэн ирээгүй. */
+  async sessionDetail(courseId: string, on: string) {
+    const list = await this.listEnrollments(courseId);
+    const rows = await this.attendance.query<
+      { enrollment_id: string; created_at: Date }[]
+    >(
+      `SELECT a.enrollment_id, a.created_at
+         FROM yoga_attendance a
+         JOIN yoga_enrollments e ON e.id = a.enrollment_id
+        WHERE e.course_id = $1 AND a.session_on = $2`,
+      [courseId, on],
+    );
+    const seen = new Map(rows.map((r) => [r.enrollment_id, r.created_at]));
+    return {
+      on,
+      present: list.filter((e) => seen.has(e.id)).length,
+      total: list.length,
+      people: list.map((e) => ({
+        ...e,
+        here: seen.has(e.id),
+        at: seen.get(e.id) ?? null,
+      })),
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════
+
+  async summary() {
+    const today = this.today;
+    const [row] = await this.ds.query<
+      { courses: string; enrolled: string; due: string; paid: string }[]
     >(
       `SELECT
-         (SELECT count(*) FROM yoga_classes
-           WHERE cancelled_at IS NULL AND starts_at BETWEEN $1 AND $2) AS classes,
-         count(b.*)                                            AS bookings,
-         count(*) FILTER (WHERE b.attended_at IS NOT NULL)      AS attended,
-         coalesce(sum(b.amount) FILTER (WHERE b.paid_at IS NOT NULL), 0) AS paid,
-         coalesce(sum(b.amount) FILTER (WHERE b.paid_at IS NULL), 0)     AS owed
-       FROM yoga_bookings b
-       JOIN yoga_classes c ON c.id = b.class_id
-      WHERE c.cancelled_at IS NULL AND c.starts_at BETWEEN $1 AND $2`,
-      [start, end],
+         (SELECT count(*) FROM yoga_courses
+           WHERE archived_at IS NULL AND ends_on >= $1) AS courses,
+         count(e.*)                                     AS enrolled,
+         coalesce(sum(e.amount_due), 0)                 AS due,
+         coalesce(sum(e.amount_paid), 0)                AS paid
+       FROM yoga_enrollments e
+       JOIN yoga_courses c ON c.id = e.course_id
+      WHERE c.archived_at IS NULL AND c.ends_on >= $1`,
+      [today],
     );
+    const due = Number(row?.due ?? 0);
+    const paid = Number(row?.paid ?? 0);
     return {
-      range: { from: start, to: end },
-      classes: Number(row?.classes ?? 0),
-      bookings: Number(row?.bookings ?? 0),
-      attended: Number(row?.attended ?? 0),
-      paid: Number(row?.paid ?? 0),
-      owed: Number(row?.owed ?? 0),
+      courses: Number(row?.courses ?? 0),
+      enrolled: Number(row?.enrolled ?? 0),
+      paid,
+      owed: Math.max(0, due - paid),
     };
   }
 
   // ── Дотоод ──
 
-  /** Хичээл тус бүрийн тоог НЭГ асуулгаар — мөр бүрд асуувал N+1. */
+  /** Анги тус бүрийн тоог НЭГ асуулгаар — мөр бүрд асуувал N+1. */
   private async statsFor(ids: string[]) {
-    const rows = await this.bookings.query<
-      {
-        class_id: string;
-        booked: string;
-        attended: string;
-        paid: string;
-        owed: string;
-      }[]
+    const rows = await this.enrollments.query<
+      { course_id: string; enrolled: string; due: string; paid: string }[]
     >(
-      `SELECT class_id,
-              count(*)                                          AS booked,
-              count(*) FILTER (WHERE attended_at IS NOT NULL)    AS attended,
-              coalesce(sum(amount) FILTER (WHERE paid_at IS NOT NULL), 0) AS paid,
-              coalesce(sum(amount) FILTER (WHERE paid_at IS NULL), 0)     AS owed
-         FROM yoga_bookings
-        WHERE class_id = ANY($1)
-        GROUP BY class_id`,
+      `SELECT course_id, count(*) AS enrolled,
+              coalesce(sum(amount_due), 0)  AS due,
+              coalesce(sum(amount_paid), 0) AS paid
+         FROM yoga_enrollments
+        WHERE course_id = ANY($1)
+        GROUP BY course_id`,
       [ids],
     );
     return new Map(
       rows.map((r) => [
-        r.class_id,
+        r.course_id,
         {
-          booked: Number(r.booked),
-          attended: Number(r.attended),
+          enrolled: Number(r.enrolled),
+          due: Number(r.due),
           paid: Number(r.paid),
-          owed: Number(r.owed),
         },
       ]),
     );
   }
 
   private view(
-    c: YogaClass,
-    s?: { booked: number; attended: number; paid: number; owed: number },
-  ): YogaClassView {
+    c: YogaCourse,
+    s?: { enrolled: number; due: number; paid: number },
+  ): YogaCourseView {
+    const today = this.today;
+    const due = s?.due ?? 0;
+    const paid = s?.paid ?? 0;
     return {
       id: c.id,
-      title: c.title,
+      name: c.name,
       instructor: c.instructor,
-      startsAt: c.startsAt,
+      startsOn: c.startsOn,
+      endsOn: c.endsOn,
+      weekdays: c.weekdays ?? [],
+      startTime: c.startTime,
       durationMin: c.durationMin,
       capacity: c.capacity,
       price: Number(c.price),
       note: c.note,
-      cancelledAt: c.cancelledAt,
-      booked: s?.booked ?? 0,
-      attended: s?.attended ?? 0,
-      paid: s?.paid ?? 0,
-      owed: s?.owed ?? 0,
+      archivedAt: c.archivedAt,
+      state: courseState(c, today),
+      sessions: courseSessions(c).length,
+      nextOn: nextSession(c, today),
+      enrolled: s?.enrolled ?? 0,
+      due,
+      paid,
+      owed: Math.max(0, due - paid),
     };
   }
-}
-
-/** Өнөөдрийн 00:00 (серверийн бүсээр — жагсаалтын анхдагч хил). */
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
 }
