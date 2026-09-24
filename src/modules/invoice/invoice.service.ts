@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
-import { In, LessThan, Repository } from 'typeorm';
+import { DataSource, In, LessThan, Repository } from 'typeorm';
 import { pageResult, type PageResult } from '../../common/dto/paginated';
 import {
   InvoiceStatus,
@@ -42,13 +42,23 @@ export interface InvoiceView {
   days: number;
   amount: number;
   status: InvoiceStatus;
-  /** Төлбөрийн суваг — одоогоор зөвхөн `bonum`. */
+  /** Төлбөрийн суваг: `bonum` (онлайн) · `cash` · `manual`. */
   provider: string;
   payUrl: string | null;
-  transactionId: string;
+  transactionId: string | null;
   paidAt: Date | null;
-  expiresAt: Date;
+  /** Нэхэмжлэх хүчинтэй байх хугацаа. Гараар бүртгэсэнд утгагүй. */
+  expiresAt: Date | null;
   createdAt: Date;
+  /**
+   * Мөр ХААНААС гарсан бэ.
+   *
+   * ⚠ Дэлгэц энэ хоёрыг ялгах ёстой: онлайн нэхэмжлэх 5 минутын дараа
+   * өөрөө хаагддаг, гараар бүртгэсэн авлага нь хүн мөнгө авах хүртэл
+   * хүлээнэ. Хоёуланг нь «хүлээгдэж буй» гэж нэг адил харуулбал
+   * ажилтан авлагаа хэзээ ч цуглуулахгүй.
+   */
+  kind: 'invoice' | 'membership';
 }
 
 /*
@@ -58,10 +68,10 @@ export interface InvoiceView {
  *   зураглал ба DTO-гийн `@IsIn` хоёр хослоод SQL түлхэлтийг хаана.
  */
 const INVOICE_SORT: Record<string, string> = {
-  createdAt: 'i.created_at',
-  paidAt: 'i.paid_at',
-  amount: 'i.amount',
-  status: 'i.status',
+  createdAt: 'created_at',
+  paidAt: 'paid_at',
+  amount: 'amount',
+  status: 'status',
 };
 
 @Injectable()
@@ -81,6 +91,9 @@ export class InvoiceService {
     private readonly promotions: PromotionService,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
+    // Төлбөрийн жагсаалт нь `invoices` + `memberships`-ыг НЭГТГЭДЭГ тул
+    // нэг репозиторийн хүрээнээс гардаг (доорх `list()`-ыг үзнэ үү).
+    private readonly ds: DataSource,
   ) {}
 
   // ══════════════════════════════════════════════════════════════
@@ -446,35 +459,121 @@ export class InvoiceService {
   //  Унших
   // ══════════════════════════════════════════════════════════════
 
+  /**
+   * Төлбөрийн бүртгэл — ОНЛАЙН ба ГАРААР хоёуланг нь.
+   *
+   * ★ ЯАГААД НЭГТГЭВ
+   *
+   * Урьд нь энэ жагсаалт зөвхөн `invoices`-ыг уншдаг байв. Гэвч
+   * ресепшн дээр бэлнээр авсан төлбөр нь `memberships` мөр л үүсгэдэг,
+   * нэхэмжлэх үүсгэдэггүй. Улмаар бодит мөнгөний нэлээд хэсэг Төлбөр
+   * дэлгэц дээр ОГТ ХАРАГДДАГГҮЙ байсан.
+   *
+   * ★ ДАВХАРДАХГҮЙН УЧИР
+   *
+   * Онлайн төлбөр ХОЁР мөр үүсгэдэг: нэхэмжлэх ба түүнээс үүссэн
+   * худалдан авалт (`invoice_id` бөглөгдсөн). Тиймээс худалдан
+   * авалтаас зөвхөн `invoice_id IS NULL`-ыг авна.
+   *
+   * ⚠ `amount > 0` шүүлт: `freeze` (чөлөө нөхөх) ба 0 төгрөгийн
+   * гараар засвар нь МӨНГӨ БИШ. Тэднийг оруулбал жагсаалт утгагүй
+   * мөрөөр дүүрнэ.
+   *
+   * ★ ЯАГААД ТҮҮХИЙ SQL
+   *
+   * Хоёр хүснэгтийг `UNION` хийсний дараа хуудаслаж, эрэмбэлэх
+   * шаардлагатай. TypeORM-ийн `getManyAndCount()` энэ хэлбэрийг
+   * дэмждэггүй бөгөөд хоёуланг нь тусад нь татаад санах ойд нийлүүлэх
+   * нь хуудаслалтыг эвдэнэ (нэг мөр хоёр хуудсанд гарах эсвэл
+   * бүрмөсөн алгасагдах).
+   */
   async list(q: ListInvoicesDto): Promise<PageResult<InvoiceView>> {
-    const qb = this.repo.createQueryBuilder('i');
-    if (q.memberId) qb.andWhere('i.member_id = :m', { m: q.memberId });
-    if (q.status) qb.andWhere('i.status = :s', { s: q.status });
-    if (q.packageId) qb.andWhere('i.package_id = :p', { p: q.packageId });
+    const where: string[] = [];
+    const p: unknown[] = [];
+    const add = (v: unknown): string => `$${p.push(v)}`;
+
+    if (q.memberId) where.push(`member_id = ${add(q.memberId)}`);
+    if (q.status) where.push(`status = ${add(q.status)}`);
+    if (q.packageId) where.push(`package_id = ${add(q.packageId)}`);
+    if (q.from) where.push(`created_at >= ${add(q.from)}`);
+    if (q.to) where.push(`created_at <= ${add(q.to)}`);
     if (q.q?.trim()) {
-      // Гишүүний НЭР/УТСААР хайх. Нэхэмжлэх дээр эдгээр байхгүй тул
-      // дэд асуулгаар — JOIN хийвэл `getManyAndCount()` эвдэрнэ
-      // (өмнө нь тулгарсан алдаа).
+      /*
+       * Гишүүний НЭР/УТСААР хайх. Төлбөрийн мөрөнд эдгээр байхгүй тул
+       * дэд асуулгаар — JOIN нь UNION-ы дараа эрэмбийг будлиантуулна.
+       */
       const term = q.q.trim();
       const digits = term.replace(/\D/g, '');
-      qb.andWhere(
-        `i.member_id IN (
-           SELECT id FROM members
-           WHERE name ILIKE :like ${digits.length >= 2 ? 'OR phone LIKE :digits' : ''}
-         )`,
-        { like: `%${term}%`, digits: `%${digits}%` },
+      const like = add(`%${term}%`);
+      const phone = digits.length >= 2 ? add(`%${digits}%`) : null;
+      where.push(
+        `member_id IN (SELECT id FROM members WHERE name ILIKE ${like}` +
+          (phone ? ` OR phone LIKE ${phone}` : '') +
+          `)`,
       );
     }
-    if (q.from) qb.andWhere('i.created_at >= :from', { from: q.from });
-    if (q.to) qb.andWhere('i.created_at <= :to', { to: q.to });
-    qb.orderBy(INVOICE_SORT[q.sort ?? ''] ?? 'i.created_at',
-      q.sort || q.order ? q.direction : 'DESC',
-    // Тогтвортой хуудаслалт: тэнцүү утгыг үе бүрд өөр дарааллаар
-    // өгвөл нэг мөр хоёр хуудсанд гарах эсвэл бүрмөсөн алгасагдана.
-    ).addOrderBy('i.id', 'DESC');
 
-    const [rows, total] = await qb.skip(q.skip).take(q.take).getManyAndCount();
-    const ids = [...new Set(rows.map((r) => r.memberId))];
+    const filter = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const order = INVOICE_SORT[q.sort ?? ''] ?? 'created_at';
+    const dir = q.sort || q.order ? q.direction : 'DESC';
+
+    /*
+     * ⚠ `status` нь ХОЁР эх сурвалжид ӨӨР утгатай:
+     *   • нэхэмжлэх — өөрийн төлөв (pending/paid/expired/cancelled)
+     *   • худалдан авалт — буцаасан бол `cancelled`, мөнгө аваагүй бол
+     *     `pending` (АВЛАГА), бусад үед `paid`
+     */
+    const UNION = `
+      SELECT i.id, i.member_id, i.package_id, i.package_name, i.days,
+             i.amount::bigint AS amount, i.status::text AS status,
+             i.provider, i.transaction_id, i.pay_url,
+             i.paid_at, i.expires_at, i.created_at,
+             'invoice'::text AS kind
+        FROM invoices i
+      UNION ALL
+      SELECT m.id, m.member_id, m.package_id, m.package_name, m.days,
+             m.amount::bigint,
+             CASE WHEN m.reversed_at IS NOT NULL THEN 'cancelled'
+                  WHEN m.paid_at IS NULL          THEN 'pending'
+                  ELSE 'paid' END,
+             m.source, NULL, NULL,
+             m.paid_at, NULL, m.created_at,
+             'membership'
+        FROM memberships m
+       WHERE m.invoice_id IS NULL
+         AND m.source IN ('cash', 'manual')
+         AND m.amount::bigint > 0`;
+
+    const [{ n }] = await this.ds.query<{ n: string }[]>(
+      `SELECT count(*) AS n FROM (${UNION}) t ${filter}`,
+      p,
+    );
+
+    const rows = await this.ds.query<
+      {
+        id: string;
+        member_id: string;
+        package_id: string | null;
+        package_name: string | null;
+        days: number;
+        amount: string;
+        status: string;
+        provider: string;
+        transaction_id: string | null;
+        pay_url: string | null;
+        paid_at: Date | null;
+        expires_at: Date | null;
+        created_at: Date;
+        kind: 'invoice' | 'membership';
+      }[]
+    >(
+      `SELECT * FROM (${UNION}) t ${filter}
+        ORDER BY ${order} ${dir}, id DESC
+        LIMIT ${add(q.take)} OFFSET ${add(q.skip)}`,
+      p,
+    );
+
+    const ids = [...new Set(rows.map((r) => r.member_id))];
     const members = ids.length
       ? await this.members.find({
           where: { id: In(ids) },
@@ -482,15 +581,30 @@ export class InvoiceService {
         })
       : [];
     const map = new Map(members.map((m) => [m.id, m]));
+
     return pageResult(
-      rows.map((r) => {
-        const m = map.get(r.memberId);
-        return this.view(r, m?.name ?? null, m?.memberNo ?? null);
-      }),
-      total,
+      rows.map((r) => ({
+        id: r.id,
+        memberId: r.member_id,
+        memberName: map.get(r.member_id)?.name ?? null,
+        memberNo: map.get(r.member_id)?.memberNo ?? null,
+        packageName: r.package_name ?? '—',
+        days: r.days,
+        amount: Number(r.amount),
+        status: r.status as InvoiceStatus,
+        provider: r.provider,
+        payUrl: r.pay_url,
+        transactionId: r.transaction_id,
+        paidAt: r.paid_at,
+        expiresAt: r.expires_at,
+        createdAt: r.created_at,
+        kind: r.kind,
+      })),
+      Number(n),
       q,
     );
   }
+
 
   async get(id: string): Promise<InvoiceView> {
     return this.view(await this.find(id));
@@ -583,6 +697,9 @@ export class InvoiceService {
       paidAt: i.paidAt,
       expiresAt: i.expiresAt,
       createdAt: i.createdAt,
+      // Энэ зам нь ҮРГЭЛЖ нэхэмжлэх — гараар бүртгэсэн мөрийг `list()`
+      // шууд угсардаг (`Invoice` entity болгодоггүй).
+      kind: 'invoice' as const,
     };
   }
   /**

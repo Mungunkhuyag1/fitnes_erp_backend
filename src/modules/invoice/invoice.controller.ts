@@ -97,8 +97,14 @@ export class InvoiceController {
     @Req() req: Request,
   ) {
     const inv = await this.invoices.get(id);
+    /*
+     * ⚠ `transactionId` нь одоо `null` байж болно — жагсаалтын хэлбэр
+     * гараар бүртгэсэн мөрийг ч агуулдаг болсон. Гэвч ЭНЭ зам зөвхөн
+     * нэхэмжлэхэд хамаарна: `get(id)` нь `invoices` хүснэгтээс уншдаг
+     * ба тэнд багана нь `NOT NULL`.
+     */
     return this.invoices.markPaid(
-      { transactionId: inv.transactionId },
+      { transactionId: inv.transactionId ?? '' },
       null,
       { staffUserId: user.id, ip: req.ip },
     );

@@ -150,12 +150,22 @@ export class ReportService {
             AND issued_at < now() - interval '6 hours') AS daily_stale,
 
         -- Өнөөдрийн орлого, эх сурвалжаар
+        --
+        -- ⚠ paid_at-aap, created_at-аар БИШ. «Дараа төлөх»-өөр
+        -- зарсан эрхийн мөнгө хараахан ирээгүй — түүнийг орлогод
+        -- оруулбал кассын тайлан бодит мөнгөтэй таарахгүй болно.
+        -- NULL харьцуулалт худал тул төлөгдөөгүй мөр өөрөө хасагдана.
         (SELECT coalesce(sum(amount),0) FROM memberships, today
-          WHERE reversed_at IS NULL AND source='cash'  AND created_at >= today.start) AS rev_cash,
+          WHERE reversed_at IS NULL AND source='cash'  AND paid_at >= today.start) AS rev_cash,
         (SELECT coalesce(sum(amount),0) FROM memberships, today
-          WHERE reversed_at IS NULL AND source='bonum' AND created_at >= today.start) AS rev_bonum,
+          WHERE reversed_at IS NULL AND source='bonum' AND paid_at >= today.start) AS rev_bonum,
         (SELECT coalesce(sum(amount),0) FROM memberships, today
-          WHERE reversed_at IS NULL AND source='manual' AND created_at >= today.start) AS rev_manual,
+          WHERE reversed_at IS NULL AND source='manual' AND paid_at >= today.start) AS rev_manual,
+        -- Цуглуулаагүй мөнгө — хэдэн төгрөг, хэдэн хүнээс.
+        (SELECT coalesce(sum(amount),0) FROM memberships
+          WHERE reversed_at IS NULL AND paid_at IS NULL) AS receivable,
+        (SELECT count(DISTINCT member_id) FROM memberships
+          WHERE reversed_at IS NULL AND paid_at IS NULL) AS receivable_members,
         (SELECT coalesce(sum(amount),0) FROM locker_assignments, today
           WHERE type='rental' AND issued_at >= today.start) AS rev_locker
       `,
@@ -198,6 +208,16 @@ export class ReportService {
         manual: n('rev_manual'),
         locker: n('rev_locker'),
         total: n('rev_cash') + n('rev_bonum') + n('rev_manual') + n('rev_locker'),
+      },
+      /**
+       * Цуглуулаагүй мөнгө — «дараа төлөх»-өөр зарсан эрх.
+       *
+       * ⚠ Орлогод ОРОХГҮЙ. Нүүр дэлгэц дээр тусад нь харагдах ёстой:
+       * ажилтан хэнээс мөнгө авахаа мэдэхгүй бол авлага мартагдана.
+       */
+      receivable: {
+        amount: n('receivable'),
+        members: n('receivable_members'),
       },
       sync: {
         memberErrors: n('sync_error_members'),
@@ -243,7 +263,8 @@ export class ReportService {
           coalesce((
             SELECT sum(m.amount) FROM memberships m
             WHERE m.reversed_at IS NULL
-              AND date_trunc($2, m.created_at AT TIME ZONE $1) = buckets.b
+              -- ⚠ Мөнгө ИРСЭН өдрөөр, зарсан өдрөөр биш.
+              AND date_trunc($2, m.paid_at AT TIME ZONE $1) = buckets.b
           ), 0) AS revenue,
           coalesce((
             SELECT count(DISTINCT e.member_id) FROM access_events e
@@ -330,11 +351,11 @@ export class ReportService {
         `
         SELECT
           coalesce((SELECT sum(amount) FROM memberships
-            WHERE reversed_at IS NULL AND created_at >= now() - ($1::text)::interval), 0) AS rev_now,
+            WHERE reversed_at IS NULL AND paid_at >= now() - ($1::text)::interval), 0) AS rev_now,
           coalesce((SELECT sum(amount) FROM memberships
             WHERE reversed_at IS NULL
-              AND created_at >= now() - (($1::text)::interval * 2)
-              AND created_at < now() - ($1::text)::interval), 0) AS rev_prev,
+              AND paid_at >= now() - (($1::text)::interval * 2)
+              AND paid_at < now() - ($1::text)::interval), 0) AS rev_prev,
           (SELECT count(DISTINCT member_id) FROM access_events
             WHERE granted AND member_id IS NOT NULL
               AND event_at >= now() - ($1::text)::interval) AS vis_now,
@@ -419,8 +440,14 @@ export class ReportService {
     const [row] = await this.ds.query<Record<string, string | null>[]>(
       `
       SELECT
+        -- ⚠ Мөнгө ХҮЛЭЭН АВСАН огноогоор. Худалдан авалтын ТОО нь
+        -- доор created_at-аар тоологдсон хэвээр — зарагдсан нь
+        -- зарагдсан, мөнгө нь хожим ирж болно.
         (SELECT coalesce(sum(amount),0) FROM memberships
-          WHERE reversed_at IS NULL AND created_at BETWEEN $1 AND $2) AS membership_revenue,
+          WHERE reversed_at IS NULL AND paid_at BETWEEN $1 AND $2) AS membership_revenue,
+        (SELECT coalesce(sum(amount),0) FROM memberships
+          WHERE reversed_at IS NULL AND paid_at IS NULL
+            AND created_at BETWEEN $1 AND $2) AS receivable,
         -- ⚠ Чөлөө нь memberships-д 0₮-ийн мөр болж бичигддэг
         -- (recompute нь дэвтрээс тооцдог тул өөр арга байхгүй).
         -- Орлогод нөлөөгүй ч ХУДАЛДАН АВАЛТ гэж тоологдох ЁСГҮЙ.
@@ -453,6 +480,13 @@ export class ReportService {
         locker: n('locker_revenue'),
         total: revenue,
         reversed: n('reversed'),
+        /**
+         * Энэ мужид зарагдсан ч мөнгө нь ИРЭЭГҮЙ дүн.
+         *
+         * ⚠ `total`-д ОРООГҮЙ. Хоёрыг нэмбэл кассанд байгаа мөнгөтэй
+         * таарахаа болино — тайлангийн гол хэрэглээ нь тэр тулгалт.
+         */
+        receivable: n('receivable'),
       },
       sales: n('sales'),
       lockerRentals: n('locker_rentals'),
@@ -472,12 +506,13 @@ export class ReportService {
     >(
       `
       WITH ms AS (
-        SELECT date_trunc($4, created_at AT TIME ZONE $3) AS bucket,
+        SELECT date_trunc($4, paid_at AT TIME ZONE $3) AS bucket,
                sum(amount) FILTER (WHERE source='cash')   AS cash,
                sum(amount) FILTER (WHERE source='bonum')  AS bonum,
                sum(amount) FILTER (WHERE source='manual') AS manual
         FROM memberships
-        WHERE reversed_at IS NULL AND created_at BETWEEN $1 AND $2
+        -- ⚠ Мөнгө ирсэн огноогоор бүлэглэнэ.
+        WHERE reversed_at IS NULL AND paid_at BETWEEN $1 AND $2
         GROUP BY 1),
       lk AS (
         SELECT date_trunc($4, issued_at AT TIME ZONE $3) AS bucket,

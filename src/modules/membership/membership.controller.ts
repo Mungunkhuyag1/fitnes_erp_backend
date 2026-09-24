@@ -85,6 +85,22 @@ export class MembershipController {
     return this.memberships.cancel(id, dto.reason, user, req.ip);
   }
 
+  /**
+   * Авлагыг төлөгдсөн гэж тэмдэглэх.
+   *
+   * ⚠ Эрхийг ХӨНДӨХГҮЙ — тэр нь худалдан авалт үүсэх агшинд нээгдсэн.
+   * Энд зөвхөн мөнгө ирснийг бүртгэнэ.
+   */
+  @Post('memberships/:id/pay')
+  @ApiOperation({ summary: 'Авлагыг төлөгдсөн гэж тэмдэглэх' })
+  markPaid(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    return this.memberships.markPaid(id, user, req.ip);
+  }
+
   @Get('members/:id/memberships')
   @ApiOperation({ summary: 'Гишүүний худалдан авалтын дэвтэр' })
   byMember(

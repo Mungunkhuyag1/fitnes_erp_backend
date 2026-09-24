@@ -41,6 +41,13 @@ export interface ExtendInput {
   days?: number;
   amount: number;
   source: MembershipSource;
+  /**
+   * Мөнгө хүлээн авсан агшин. `null` = «дараа төлөх» (авлага).
+   *
+   * ⚠ Заагаагүй бол ОДОО гэж үзнэ — онлайн төлбөр, хуучин дуудагчид
+   * бүгд мөнгө ирсний дараа энэ функцийг дууддаг.
+   */
+  paidAt?: Date | null;
   invoiceId?: string | null;
   staffUserId?: string | null;
   reason?: string | null;
@@ -152,6 +159,8 @@ export class MembershipService {
           days,
           amount: String(input.amount),
           source: input.source,
+          // `undefined` = одоо төлсөн. `null` = авлага.
+          paidAt: input.paidAt === undefined ? now : input.paidAt,
           invoiceId: input.invoiceId ?? null,
           staffUserId: input.staffUserId ?? null,
           reason: input.reason ?? null,
@@ -300,6 +309,7 @@ export class MembershipService {
         packageId: dto.packageId,
         amount: share + extra,
         source: dto.method,
+        paidAt: dto.payLater ? null : undefined,
         staffUserId: user.id,
         reason: `Хосын багц (1/2)`,
         // ⚠ Түлхүүрт СУУДАЛ орно — эс бөгөөс хоёр дахь сунгалт
@@ -312,6 +322,7 @@ export class MembershipService {
         packageId: dto.packageId,
         amount: share,
         source: dto.method,
+        paidAt: dto.payLater ? null : undefined,
         staffUserId: user.id,
         reason: `Хосын багц (2/2)`,
         idempotencyKey: `${dto.idempotencyKey}:2`,
@@ -332,10 +343,63 @@ export class MembershipService {
       days: dto.days,
       amount: dto.amount,
       source: dto.method,
+      // `undefined` = одоо төлсөн. `null` = авлага.
+      paidAt: dto.payLater ? null : undefined,
       staffUserId: user.id,
       reason: dto.reason ?? null,
       idempotencyKey: dto.idempotencyKey,
       ip,
+    });
+  }
+
+  /**
+   * Авлагыг ТӨЛӨГДСӨН гэж тэмдэглэнэ.
+   *
+   * ★ ЭРХИЙГ ХӨНДӨХГҮЙ
+   *
+   * Эрх нь худалдан авалт үүсэх агшинд аль хэдийн нээгдсэн. Энд
+   * зөвхөн МӨНГӨ ирснийг бүртгэнэ — огноо, хоног, терминал юу ч
+   * өөрчлөгдөхгүй. Тиймээс outbox руу ямар ч ажил дараалахгүй.
+   *
+   * ⚠ Идемпотент: аль хэдийн төлөгдсөн бол алдаа шидэхгүй, анхны
+   * огноог нь ХЭВЭЭР үлдээнэ. Хоёр ажилтан зэрэг дарвал кассын
+   * тайлан дээр огноо нь үсрэх ёсгүй.
+   */
+  async markPaid(
+    membershipId: string,
+    user: AuthUser,
+    ip?: string | null,
+  ): Promise<{ ok: true; alreadyPaid: boolean; paidAt: Date }> {
+    return this.ds.transaction(async (m) => {
+      const repo = m.getRepository(Membership);
+      const row = await repo.findOne({ where: { id: membershipId } });
+      if (!row) throw new NotFoundException('Худалдан авалт олдсонгүй');
+      if (row.reversedAt) {
+        throw new BadRequestException('Буцаасан худалдан авалт — төлбөр авахгүй');
+      }
+      if (row.paidAt) {
+        return { ok: true as const, alreadyPaid: true, paidAt: row.paidAt };
+      }
+
+      const paidAt = new Date();
+      row.paidAt = paidAt;
+      await repo.save(row);
+
+      await this.audit.record(
+        {
+          staffUserId: user.id,
+          action: 'membership.markPaid',
+          entity: 'member',
+          entityId: row.memberId,
+          after: { membershipId, amount: Number(row.amount), paidAt },
+          ip,
+        },
+        m,
+      );
+      this.log.log(
+        `Авлага барагдав: ${row.amount}₮ (худалдан авалт ${membershipId})`,
+      );
+      return { ok: true as const, alreadyPaid: false, paidAt };
     });
   }
 

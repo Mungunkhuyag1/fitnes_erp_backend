@@ -64,6 +64,16 @@ export class Membership {
   @Column({ name: 'idempotency_key', type: 'varchar', length: 128 })
   idempotencyKey: string;
 
+  /**
+   * Мөнгө ХЭЗЭЭ ирсэн бэ. `null` = хараахан аваагүй (авлага).
+   *
+   * ⚠ Эрхийг ТӨЛБӨРӨӨС салгана: гишүүн зааланд шууд орно, мөнгө нь
+   * хожим бүртгэгдэнэ. Тайлан дээр орлогыг энэ огноогоор тооцно —
+   * `created_at`-аар биш, эс бөгөөс аваагүй мөнгө орлогод орно.
+   */
+  @Column({ name: 'paid_at', type: 'timestamptz', nullable: true })
+  paidAt: Date | null;
+
   @Column({ name: 'reversed_at', type: 'timestamptz', nullable: true })
   reversedAt: Date | null;
 

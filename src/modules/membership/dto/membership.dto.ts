@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsDate,
+  IsBoolean,
   IsEnum,
   IsIn,
   IsInt,
@@ -66,6 +67,25 @@ export class ExtendMembershipDto {
   @IsOptional()
   @IsUUID()
   partnerMemberId?: string;
+
+  /**
+   * Мөнгийг ХОЖИМ авна — эрх нь одоо нээгдэнэ.
+   *
+   * ★ ЯАГААД ХЭРЭГТЭЙ ВЭ
+   *
+   * Ресепшн дээр «мөнгөө маргааш авчирна» гэх нь олонтаа. Үүнгүй бол
+   * ажилтны сонголт хоёулаа буруу: бүртгэвэл аваагүй мөнгө орлогод
+   * орно, бүртгэхгүй бол гишүүн зааланд орж чадахгүй.
+   *
+   * ⚠ `amount` нь ТӨЛӨХ ЁСТОЙ дүн хэвээр. Тэглэвэл хэдийг авахаа
+   * мартана — авлагын жагсаалт утгагүй болно.
+   */
+  @ApiPropertyOptional({
+    description: 'true → төлбөрийг дараа авна (авлага үүснэ)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  payLater?: boolean;
 
 }
 
