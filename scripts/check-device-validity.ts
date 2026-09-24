@@ -141,12 +141,64 @@ ok(
     '2026-09-01T00:00:00.000Z',
 );
 
+// ── ХААЛТ: огноогоор, `enable`-ээр БИШ ──
+
+/*
+ * ★ ХАМГИЙН ЭМЗЭГ ХЭСЭГ
+ *
+ * Hikvision-ий `Valid.enable` нь «хэрэглэгч идэвхтэй юу» БИШ,
+ * «хүчинтэй ХУГАЦААГ шалгах уу» гэсэн утгатай. `false` бичвэл
+ * хугацааны шалгалт УНТАРЧ, цуцалсан гишүүн ХЯЗГААРГҮЙ нэвтрэх
+ * боломжтой болно — хаах гэсэн үйлдэл эсрэгээрээ нээнэ.
+ *
+ * Бодит терминал дээр 339 хэрэглэгч БҮГД `enable = true`, тэр дундаа
+ * хугацаа нь өнгөрсөн 245 хүн ч мөн адил. Заал хаалтыг ОГНООГООР
+ * хийдэг ба тэр нь ажилладаг нь батлагдсан.
+ */
+for (const st of [MemberStatus.SUSPENDED, MemberStatus.CANCELLED] as const) {
+  const blockedV = deviceValidity({
+    ...member('2027-10-23T00:00:00Z'), // ⚠ ИРЭЭДҮЙН огноо
+    status: st,
+  });
+  ok(`${st}: enable нь ҮРГЭЛЖ true`, blockedV.enable === true, blockedV.enable);
+  ok(
+    `${st}: хугацаа ТЭГ урт (эхлэл = төгсгөл)`,
+    blockedV.end.getTime() === blockedV.begin.getTime(),
+    `${blockedV.begin.toISOString()} → ${blockedV.end.toISOString()}`,
+  );
+  ok(
+    `${st}: төгсгөл нь ӨНГӨРСӨН — нэвтрэх боломжгүй`,
+    blockedV.end.getTime() < Date.now(),
+    blockedV.end.toISOString(),
+  );
+  /*
+   * ⚠ Ирээдүйн `accessEndsAt`-ыг ашиглаж БОЛОХГҮЙ. Түр зогсоолт нь
+   * огноог хөндөхгүй тул тэр нь 2027 онд дуусна — хаалт үүнийг
+   * дагавал гишүүн жилийн турш нэвтэрсээр байна.
+   */
+  ok(
+    `${st}: ирээдүйн accessEndsAt-ыг АШИГЛАХГҮЙ`,
+    blockedV.end.getFullYear() < 2027,
+    blockedV.end.toISOString(),
+  );
+}
+
+// Хугацаа дууссан нь ХААГДСАН биш — огноо нь өөрөө хаана.
+const expiredV = deviceValidity({
+  ...member('2026-01-01T00:00:00Z'),
+  status: MemberStatus.EXPIRED,
+});
 ok(
-  'түр зогссон гишүүний эрх унтраана',
-  deviceValidity({
-    ...member('2026-10-23T00:00:00Z'),
-    status: MemberStatus.SUSPENDED,
-  }).enable === false,
+  'expired: жинхэнэ дуусах огноогоо хадгална',
+  expiredV.end.toISOString() === '2026-01-01T00:00:00.000Z',
+  expiredV.end.toISOString(),
+);
+ok('expired: enable true', expiredV.enable === true);
+
+ok(
+  'идэвхтэй гишүүн хөндөгдөхгүй',
+  deviceValidity(member('2026-10-23T15:59:59.999Z')).end.toISOString() ===
+    '2026-10-23T15:59:59.999Z',
 );
 
 console.log(fails ? `\n${fails} шалгалт унав` : '\nБүгд тэнцэв');
