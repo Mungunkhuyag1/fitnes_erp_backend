@@ -137,10 +137,22 @@ export class MetaClient {
     pageId: string,
     fields: readonly string[],
   ): Promise<{ success: boolean }> {
-    return this.call<{ success: boolean }>(
+    const r = await this.call<{ success?: boolean }>(
       `/${pageId}/subscribed_apps?subscribed_fields=${fields.join(',')}`,
       { method: 'POST' },
     );
+    /*
+     * ⚠ HTTP 200 нь АМЖИЛТ гэсэн үг БИШ.
+     *
+     * Graph нь заримдаа 200-гаар «{"success": false}» буцаадаг.
+     * `call()` нь зөвхөн `res.ok`-ыг хардаг тул тэр нь чимээгүй
+     * өнгөрч, дэлгэц дээр ногоон «захиалагдлаа» гарна — гэтэл юу ч
+     * захиалагдаагүй байна. Ажилтан мессеж хүлээгээд суух болно.
+     */
+    if (r?.success === false) {
+      throw new MetaApiError(200, 'Graph «success: false» буцаалаа');
+    }
+    return { success: true };
   }
 
   /**

@@ -23,6 +23,18 @@ import { MetaApiError, MetaClient } from './meta.client';
  * `messaging_postbacks` нь товчны даралт — одоогоор товч ашиглахгүй ч
  * захиалах нь үнэгүй, хожим нэмэхэд Meta руу дахин орох шаардлагагүй.
  */
+/**
+ * Токенд ЗААВАЛ байх ёстой эрхүүд.
+ *
+ * ⚠ `pages_read_engagement` энд БАЙХГҮЙ — тэр нь зөвхөн хуудасны
+ * НЭР уншихад хэрэгтэй, ажиллагаанд нөлөөгүй (`resolvePage`).
+ */
+const REQUIRED_SCOPES = [
+  'pages_messaging',
+  'pages_manage_metadata',
+  'pages_show_list',
+] as const;
+
 const REQUIRED_FIELDS = [
   'messages',
   'message_echoes',
@@ -227,6 +239,17 @@ export class MetaService {
      * `'unknown'` — App ID байгаа ч шалгалт бүтсэнгүй
      */
     expiresAt: Date | null | 'never' | 'unknown';
+    /**
+     * Токенд ЯГ ЯМАР эрх байгаа (`debug_token`-оос).
+     *
+     * ⚠ Үүнгүй бол «ямар эрх дутуу вэ» гэдгийг ТААМАГЛАХ л үлддэг:
+     * Meta-гийн самбарт эрх «нэмэгдсэн» харагдаж байхад токенд нь
+     * ороогүй байх нь энэ тохиргооны ХАМГИЙН олон удаа тохиолдсон
+     * алдаа. Жагсаалт нь маргааныг таслана.
+     */
+    scopes: string[];
+    /** Ажиллахад ЗААВАЛ хэрэгтэй атлаа токенд алга. */
+    missingScopes: string[];
     subscription: {
       /** Хуудас ЭНЭ аппад захиалагдсан эсэх. */
       subscribed: boolean;
@@ -246,6 +269,8 @@ export class MetaService {
         token: { ok: false, error: 'Хуудас холбогдоогүй байна' },
         page: null,
         expiresAt: null,
+        scopes: [],
+        missingScopes: [...REQUIRED_SCOPES],
         subscription: { subscribed: false, fields: [], missing: [...REQUIRED_FIELDS] },
         webhookUrl,
       };
@@ -258,6 +283,8 @@ export class MetaService {
         token: { ok: false, error: 'Токен уншигдсангүй — дахин холбоно уу' },
         page: null,
         expiresAt: null,
+        scopes: [],
+        missingScopes: [...REQUIRED_SCOPES],
         subscription: { subscribed: false, fields: [], missing: [...REQUIRED_FIELDS] },
         webhookUrl,
       };
@@ -280,12 +307,14 @@ export class MetaService {
      * байхгүй асуудлыг хөөнө.
      */
     let expiresAt: Date | null | 'never' | 'unknown' = null;
+    let scopes: string[] = [];
     if (page && p.appId && secret) {
       try {
         const d = await api.debugToken(token, `${p.appId}|${secret}`);
         // ⚠ `0` бол ХЭЗЭЭ Ч дуусахгүй — `new Date(0)` нь 1970 он гэж
         // харагдах тул ЗААВАЛ тусад нь тэмдэглэнэ.
         expiresAt = !d.expires_at ? 'never' : new Date(d.expires_at * 1000);
+        scopes = d.scopes ?? [];
       } catch {
         expiresAt = 'unknown';
       }
@@ -323,6 +352,15 @@ export class MetaService {
         : { ok: false, error: tokenErr },
       page,
       expiresAt,
+      scopes,
+      /*
+       * ⚠ `scopes` хоосон байвал «бүгд дутуу» гэж ХЭЛЭХГҮЙ — App ID
+       * өгөөгүй эсвэл debug_token унасан байж болно. Худал улаан
+       * жагсаалт нь байхгүй асуудал хөөлгөнө.
+       */
+      missingScopes: scopes.length
+        ? REQUIRED_SCOPES.filter((x) => !scopes.includes(x))
+        : [],
       subscription: {
         subscribed,
         fields,
