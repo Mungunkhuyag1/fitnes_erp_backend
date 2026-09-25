@@ -27,8 +27,25 @@ export class DeviceService {
     return this.config.get<string>('timezone') ?? 'Asia/Ulaanbaatar';
   }
 
-  list() {
-    return this.devices.find({ order: { name: 'ASC' } });
+  /**
+   * ⚠ `passwordEnc`-ийг ХАСНА.
+   *
+   * Шифрлэгдсэн ч гэсэн клиент талд ямар ч хэрэггүй бөгөөд энэ
+   * жагсаалт нь нэвтэрсэн БҮХ хэрэглэгчид нээлттэй. Хамгийн бага
+   * эрхийн зарчим: хэрэглэгддэггүй нууцлалтай талбарыг битгий яв.
+   */
+  async list() {
+    const rows = await this.devices.find({ order: { name: 'ASC' } });
+    return rows.map(({ passwordEnc: _pw, ...rest }) => rest);
+  }
+
+  /** Толгойн мөр — хаалга нээх товч ба төлөвийн цэг. */
+  brief() {
+    return this.devices.find({
+      where: { active: true },
+      order: { name: 'ASC' },
+      select: { id: true, name: true, online: true, lastSeenAt: true },
+    });
   }
 
   /**

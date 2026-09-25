@@ -626,6 +626,12 @@ export class MembershipService {
     const qb = this.repo.createQueryBuilder('ms');
     if (q.memberId) qb.andWhere('ms.member_id = :mid', { mid: q.memberId });
     if (q.source) qb.andWhere('ms.source = :src', { src: q.source });
+    // Авлага — `ix_memberships_unpaid` хэсэгчилсэн индекс үйлчилнэ.
+    if (q.unpaid) {
+      qb.andWhere('ms.paid_at IS NULL')
+        .andWhere('ms.reversed_at IS NULL')
+        .andWhere('ms.amount > 0');
+    }
     if (q.from) qb.andWhere('ms.created_at >= :from', { from: q.from });
     if (q.to) qb.andWhere('ms.created_at <= :to', { to: q.to });
     qb.orderBy(MEMBERSHIP_SORT[q.sort ?? ''] ?? 'ms.created_at',
@@ -649,6 +655,12 @@ export class MembershipService {
         reason: r.reason,
         startsAt: r.startsAt,
         endsAt: r.endsAt,
+        /*
+         * ⚠ АВЛАГЫН эх сурвалж. `null` = «дараа төлье»-өөр зарсан,
+         * мөнгө хараахан ирээгүй. Үүнгүй бол гишүүний дэлгэц дээр
+         * төлсөн, төлөөгүй хоёрыг ялгах арга байхгүй байв.
+         */
+        paidAt: r.paidAt,
         reversedAt: r.reversedAt,
         createdAt: r.createdAt,
       })),

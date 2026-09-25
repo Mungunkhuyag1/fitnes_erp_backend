@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDate,
   IsBoolean,
@@ -127,6 +127,21 @@ export class ListMembershipsDto extends PageQueryDto {
   @IsOptional()
   @IsEnum(MembershipSource)
   source?: MembershipSource;
+
+  /**
+   * ЗӨВХӨН төлөгдөөгүй мөр — авлага.
+   *
+   * ⚠ `amount > 0` шалгана. Чөлөө, бэлгийн 0₮ мөр нь `paid_at = null`
+   * байж болох ч тэдгээр нь «төлөөгүй» биш, ТӨЛӨХ ЮМ БАЙХГҮЙ. Хасахгүй
+   * бол гишүүн бүр авлагатай мэт харагдана.
+   *
+   * ⚠ Буцаагдсан мөрийг мөн хасна — тэр өр аль хэдийн үгүй болсон.
+   */
+  @ApiPropertyOptional({ description: 'Зөвхөн төлөгдөөгүй (авлага)' })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  unpaid?: boolean;
 
   @ApiPropertyOptional({ example: '2026-08-01T00:00:00+08:00' })
   @IsOptional()
