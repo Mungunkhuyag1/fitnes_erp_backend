@@ -19,6 +19,86 @@ import type {
 /** Нүүр хуудасны хугацааны хүрээ. */
 export type DashboardRange = '7d' | '30d' | '12m';
 
+// ══════════════════════════════════════════════════════════════
+//  АВЛАГА
+// ══════════════════════════════════════════════════════════════
+
+/** Заалны төлөгдөөгүй эрх — ГИШҮҮНЭЭР нэгтгэсэн. */
+export interface GymReceivable {
+  memberId: string;
+  memberNo: string | null;
+  name: string;
+  phone: string | null;
+  status: string;
+  /** Нийт авах дүн — бүх төлөгдөөгүй мөрийн нийлбэр. */
+  owed: number;
+  /** Хэдэн удаа «дараа төлье» гэсэн бэ. */
+  rows: number;
+  packageName: string | null;
+  /** ХАМГИЙН ЭРТ өрийн огноо. */
+  since: Date;
+  /** Тэр өдрөөс хойш хэд хоног. */
+  days: number;
+  /** Төлбөргүйгээр ХЭЗЭЭ хүртэл нэвтрэх эрх авсан. */
+  accessUntil: Date | null;
+  /** Сүүлд ХЭЗЭЭ ямар нэг төлбөр төлсөн (өр биш). */
+  lastPaidAt: Date | null;
+}
+
+/** Йогийн ангийн үлдэгдэл — БҮРТГЭЛЭЭР (нэг хүн 2 ангид байж болно). */
+export interface YogaReceivable {
+  enrollmentId: string;
+  courseId: string;
+  courseName: string;
+  courseEndsOn: string;
+  memberId: string | null;
+  name: string;
+  phone: string | null;
+  due: number;
+  paid: number;
+  owed: number;
+  /** Бүртгүүлсэн огноо. */
+  since: Date;
+  days: number;
+  /** Сүүлийн хэсэгчилсэн төлбөр — байхгүй бол хэзээ ч төлөөгүй. */
+  lastPaidAt: Date | null;
+}
+
+/** SQL-ийн түүхий мөр — `bigint` нь `string`-ээр ирнэ. */
+interface GymReceivableRow {
+  member_id: string;
+  member_no: string | null;
+  name: string;
+  phone: string | null;
+  status: string;
+  access_ends_at: Date | null;
+  owed: string;
+  rows: number;
+  since: Date;
+  days: number;
+  access_until: Date | null;
+  package_name: string | null;
+  last_paid_at: Date | null;
+}
+
+interface YogaReceivableRow {
+  enrollment_id: string;
+  course_id: string;
+  course_name: string;
+  course_ends_on: string;
+  archived_at: Date | null;
+  member_id: string | null;
+  name: string;
+  phone: string | null;
+  due: string;
+  paid: string;
+  owed: string;
+  since: Date;
+  days: number;
+  last_paid_at: Date | null;
+}
+
+
 /**
  * Хүрээ бүрийн SQL параметрүүд.
  *
@@ -249,6 +329,155 @@ export class ReportService {
         lastSeenAt: d.last_seen_at,
       })),
       ...(await this.dashboardExtras(tz, range)),
+    };
+  }
+
+  /**
+   * АВЛАГЫН ЖАГСААЛТ — хэнээс хэдийг авах вэ.
+   *
+   * ★ ЯАГААД ТООНООС ГАДНА ЖАГСААЛТ ХЭРЭГТЭЙ ВЭ
+   *
+   * Нүүр дэлгэц «⚠ Авлага 1,250,000₮» гэж ХЭМЖЭЭГ л хэлдэг байв. Тэр
+   * нь ажилтанд ЮУ Ч хийлгэхгүй: хэнээс авахаа мэдэхгүй тул мөнгө
+   * өөрөө ирэхийг хүлээнэ. Авлага бол ЗАЙЛШГҮЙ авах ёстой мөнгө —
+   * гишүүн аль хэдийн заалаар орж, эрхээ хэрэглэж байна.
+   *
+   * ⚠ ГИШҮҮНЭЭР НЭГТГЭНЭ, мөрөөр биш. Нэг хүн 3 удаа «дараа төлье»
+   * гэж сунгасан бол жагсаалтад 3 мөр гарах нь буруу: ажилтны
+   * асуулт «Батаас хэдийг авах вэ?» — НЭГ дүн.
+   *
+   * ★ «ХЭД ХОНОГИЙН ӨМНӨ» НЬ ХАМГИЙН ХУУЧНААР
+   *
+   * Гишүүний ХАМГИЙН ЭРТ төлөгдөөгүй мөрөөр тоолно. 40 хоногийн
+   * өмнөх өр нь өчигдрийн өртэй хамт «өчигдөр» гэж харагдвал
+   * дараалал утгагүй болно.
+   */
+  async receivables(): Promise<{
+    gym: GymReceivable[];
+    yoga: YogaReceivable[];
+    total: { gym: number; yoga: number; amount: number };
+  }> {
+    const tz = this.tz;
+    const [gym, yoga] = await Promise.all([
+      this.ds.query<GymReceivableRow[]>(
+        `
+        SELECT
+          m.id                       AS member_id,
+          m.member_no                AS member_no,
+          m.name                     AS name,
+          m.phone                    AS phone,
+          m.status                   AS status,
+          m.access_ends_at           AS access_ends_at,
+          sum(u.amount)::bigint      AS owed,
+          count(*)::int              AS rows,
+          min(u.created_at)          AS since,
+          /*
+           * ⚠ ХОНОГИЙГ ХУАНЛИЙН ӨДРӨӨР — өнгөрсөн ЦАГААР биш.
+           *
+           * «(одоо - тэр үе) / 86400» гэж бодвол өчигдөр оройн 20:00-д
+           * зарсан өр өнөөдөр 11:00-д «0 хоног» болж, дэлгэц дээр
+           * «өнөөдөр» гэж харагдана. Ажилтан «шинэ өр» гэж андуурна.
+           * Хоёр талыг УБ-ийн огноо болгож хасна.
+           */
+          ((now() AT TIME ZONE $1)::date
+            - (min(u.created_at) AT TIME ZONE $1)::date)::int AS days,
+          max(u.ends_at)             AS access_until,
+          -- Хамгийн эрт өрийн БАГЦЫН нэр — «ямар эрхийг төлөөгүй вэ».
+          (array_agg(u.package_name ORDER BY u.created_at))[1] AS package_name,
+          /*
+           * СҮҮЛД ХЭЗЭЭ ТӨЛСӨН — өөр асуулга.
+           *
+           * ⚠ Энэ нь өрийн мөрүүдээс биш, тухайн гишүүний БҮХ
+           * төлөгдсөн мөрөөс. «Сүүлд 3 сарын өмнө төлсөн» нь
+           * «өчигдөр төлсөн»-өөс тэс өөр дүгнэлт гаргуулна.
+           */
+          (SELECT max(p.paid_at) FROM memberships p
+            WHERE p.member_id = m.id AND p.reversed_at IS NULL
+              AND p.paid_at IS NOT NULL) AS last_paid_at
+        FROM memberships u
+        JOIN members m ON m.id = u.member_id
+        WHERE u.reversed_at IS NULL
+          AND u.paid_at IS NULL
+          -- ⚠ 0₮ мөрийг хасна: чөлөө/бэлэг нь «төлбөргүй» биш,
+          -- ТӨЛӨХ ЮМ БАЙХГҮЙ. Авлагад тоолбол жагсаалт хуурамч урт болно.
+          AND u.amount > 0
+        GROUP BY m.id, m.member_no, m.name, m.phone, m.status, m.access_ends_at
+        ORDER BY min(u.created_at)
+      `,
+        [tz],
+      ),
+      this.ds.query<YogaReceivableRow[]>(
+        `
+        SELECT
+          e.id                                AS enrollment_id,
+          e.course_id                         AS course_id,
+          c.name                              AS course_name,
+          -- ⚠ «::text» — «date» багана нь Date объект болж ирдэг ба
+          -- цагийн бүсээр хөрвөхөд өдөр гулсана. Текстээр авбал
+          -- хуваарийн огноотой ЯГ таарна.
+          c.ends_on::text                     AS course_ends_on,
+          c.archived_at                       AS archived_at,
+          e.member_id                         AS member_id,
+          e.name                              AS name,
+          e.phone                             AS phone,
+          e.amount_due::bigint                AS due,
+          e.amount_paid::bigint               AS paid,
+          (e.amount_due - e.amount_paid)::bigint AS owed,
+          e.created_at                        AS since,
+          ((now() AT TIME ZONE $1)::date
+            - (e.created_at AT TIME ZONE $1)::date)::int AS days,
+          (SELECT max(p.paid_at) FROM yoga_payments p
+            WHERE p.enrollment_id = e.id)     AS last_paid_at
+        FROM yoga_enrollments e
+        JOIN yoga_courses c ON c.id = e.course_id
+        WHERE c.archived_at IS NULL
+          AND e.amount_due > e.amount_paid
+        ORDER BY e.created_at
+      `,
+        [tz],
+      ),
+    ]);
+
+    const g = gym.map(
+      (r): GymReceivable => ({
+        memberId: r.member_id,
+        memberNo: r.member_no,
+        name: r.name,
+        phone: r.phone,
+        status: r.status,
+        owed: Number(r.owed),
+        rows: r.rows,
+        packageName: r.package_name,
+        since: r.since,
+        days: r.days,
+        accessUntil: r.access_until ?? r.access_ends_at,
+        lastPaidAt: r.last_paid_at,
+      }),
+    );
+    const y = yoga.map(
+      (r): YogaReceivable => ({
+        enrollmentId: r.enrollment_id,
+        courseId: r.course_id,
+        courseName: r.course_name,
+        courseEndsOn: r.course_ends_on,
+        memberId: r.member_id,
+        name: r.name,
+        phone: r.phone,
+        due: Number(r.due),
+        paid: Number(r.paid),
+        owed: Number(r.owed),
+        since: r.since,
+        days: r.days,
+        lastPaidAt: r.last_paid_at,
+      }),
+    );
+
+    const sum = (xs: { owed: number }[]): number =>
+      xs.reduce((a, b) => a + b.owed, 0);
+    return {
+      gym: g,
+      yoga: y,
+      total: { gym: sum(g), yoga: sum(y), amount: sum(g) + sum(y) },
     };
   }
 
