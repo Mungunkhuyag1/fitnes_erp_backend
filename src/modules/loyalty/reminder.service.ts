@@ -12,6 +12,7 @@ import { SettingsService } from '../settings/settings.service';
 import { LOYALTY_TOPICS, loyaltyGroup } from './loyalty-sync.service';
 import { LockerAssignment } from '../locker/locker-assignment.entity';
 import { ReminderKind, ReminderLog } from './reminder-log.entity';
+import { CRON, SCHEDULE_TZ } from '../../config/schedule';
 
 interface Candidate {
   memberId: string;
@@ -53,7 +54,7 @@ export class ReminderService {
   ) {}
 
   /** Өдөр бүр 09:00 (локал) — шөнө мэдэгдэл илгээхгүй. */
-  @Cron('0 9 * * *', { name: 'send-reminders', timeZone: 'Asia/Ulaanbaatar' })
+  @Cron(CRON.SEND_REMINDERS, { name: 'send-reminders', timeZone: SCHEDULE_TZ })
   async tick(): Promise<{ sent: number; skippedNoCard: number }> {
     return this.run();
   }

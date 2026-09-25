@@ -4,6 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { OutboxMessage, OutboxStatus } from './outbox.entity';
+import { CRON, SCHEDULE_TZ } from '../../config/schedule';
 
 /**
  * Боловсруулагдсан outbox мөрийг устгана.
@@ -35,7 +36,7 @@ export class OutboxRetentionService {
   ) {}
 
   /** Өдөр бүр 04:30 — бусад шөнийн ажлууд дууссаны дараа. */
-  @Cron('30 4 * * *', { name: 'outbox-prune', timeZone: 'Asia/Ulaanbaatar' })
+  @Cron(CRON.OUTBOX_PRUNE, { name: 'outbox-prune', timeZone: SCHEDULE_TZ })
   async tick(): Promise<void> {
     const removed = await this.prune();
     if (removed) this.log.log(`Outbox цэвэрлэв: ${removed} мөр`);

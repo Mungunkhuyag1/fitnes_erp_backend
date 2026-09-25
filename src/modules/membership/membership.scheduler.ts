@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { MemberStatus } from '../../common/enums/member-status.enum';
 import { Member } from '../member/member.entity';
+import { CRON, SCHEDULE_TZ } from '../../config/schedule';
 
 /**
  * Хугацаа дууссан гишүүдийг тэмдэглэнэ.
@@ -22,9 +23,9 @@ export class MembershipScheduler {
     private readonly config: ConfigService,
   ) {}
 
-  @Cron('5 0 * * *', {
+  @Cron(CRON.EXPIRE_MEMBERSHIPS, {
     name: 'expire-memberships',
-    timeZone: 'Asia/Ulaanbaatar',
+    timeZone: SCHEDULE_TZ,
   })
   async expire(): Promise<number> {
     const res = await this.members.update(

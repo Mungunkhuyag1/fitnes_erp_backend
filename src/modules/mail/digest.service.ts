@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { MailEvent } from './mail.entity';
 import { MailService } from './mail.service';
 import { dailyDigest, type DigestData } from './mail.template';
+import { CRON, SCHEDULE_TZ } from '../../config/schedule';
 
 /**
  * Өдрийн орлогын хураангуй.
@@ -31,7 +32,7 @@ export class DigestService {
   }
 
   /** Өдөр бүр 23:00 — өдөр дуусахад ойрхон, шөнийн ажлуудаас өмнө. */
-  @Cron('0 23 * * *', { name: 'daily-digest', timeZone: 'Asia/Ulaanbaatar' })
+  @Cron(CRON.DAILY_DIGEST, { name: 'daily-digest', timeZone: SCHEDULE_TZ })
   async tick(): Promise<void> {
     const sent = await this.run();
     if (sent) this.log.log(`Өдрийн хураангуй илгээв: ${sent} хаяг`);

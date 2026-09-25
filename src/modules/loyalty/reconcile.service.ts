@@ -9,6 +9,7 @@ import { OutboxService } from '../outbox/outbox.service';
 import { LoyaltyClient, type LoyaltyCardListRow } from './loyalty.client';
 import { LOYALTY_TOPICS, loyaltyGroup } from './loyalty-sync.service';
 import { SettingsService } from '../settings/settings.service';
+import { CRON, SCHEDULE_TZ } from '../../config/schedule';
 
 export interface ReconcileResult {
   ran: boolean;
@@ -73,7 +74,7 @@ export class ReconcileService {
    * 09:00-ийн сануулгаас ӨМНӨ ажиллана: тулгалт нь картын огноог зассан
    * байвал сануулга зөв мэдээлэлтэй явна.
    */
-  @Cron('0 4 * * *', { name: 'loopy-reconcile', timeZone: 'Asia/Ulaanbaatar' })
+  @Cron(CRON.LOOPY_RECONCILE, { name: 'loopy-reconcile', timeZone: SCHEDULE_TZ })
   async tick(): Promise<ReconcileResult> {
     return this.run();
   }

@@ -17,6 +17,7 @@ import { Member } from '../member/member.entity';
 import { MembershipService } from '../membership/membership.service';
 import { SettingsService } from '../settings/settings.service';
 import { Freeze, FreezeApplication, FreezeScope } from './freeze.entity';
+import { CRON, SCHEDULE_TZ } from '../../config/schedule';
 
 /** Хоногийн зөрүү — эхлэл ба төгсгөлийн хооронд. */
 const daysBetween = (a: Date, b: Date): number =>
@@ -255,8 +256,14 @@ export class FreezeService {
    * Өдөр бүр 00:30 — эрх дуусгах ажлаас (00:05) ХОЙНО: чөлөөний хоног
    * нэмэгдсэний дараа тэр гишүүн «хугацаа дууссан» гэж тэмдэглэгдэх
    * ёсгүй.
+   *
+   * ⚠ ЭНЭ АЖИЛ ШӨНӨ ҮЛДСЭН — зориуд. Санд бичих нь туннелээс
+   * хамаарахгүй. Гэвч `apply()` → `extend()` нь `hik.setValidity`
+   * бичилт дараалалд оруулна, тэр нь заалны PC унтарсан тул 03:06
+   * гэхэд `failed` болно. Түүнийг 07:00-ийн `device-audit` зөрүү
+   * болгон олж дахин бичнэ (`src/config/schedule.ts`-ийг үз).
    */
-  @Cron('30 0 * * *', { name: 'freeze-expire', timeZone: 'Asia/Ulaanbaatar' })
+  @Cron(CRON.FREEZE_EXPIRE, { name: 'freeze-expire', timeZone: SCHEDULE_TZ })
   async tick(): Promise<void> {
     const due = await this.repo.find({
       where: {

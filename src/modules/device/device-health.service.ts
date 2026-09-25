@@ -8,6 +8,11 @@ import { MailService } from '../mail/mail.service';
 import { Device } from './device.entity';
 import { DEVICE_GATEWAY, type DeviceGateway } from './device.gateway';
 import { IsapiError } from './isapi/isapi.client';
+import {
+  QUIET_FROM_HOUR,
+  QUIET_TO_HOUR,
+  inQuietHours,
+} from '../../config/schedule';
 
 /** Дараалсан хэдэн алдааны дараа «унтарсан» гэж үзэх вэ. */
 const FAIL_THRESHOLD = 3;
@@ -81,6 +86,15 @@ export class DeviceHealthService {
   private toldOnline: boolean | null = null;
   private toldAt = 0;
 
+  /**
+   * Шөнийн ХҮЛЭЭГДСЭН унтралтыг мэйлгүй алгассан уу.
+   *
+   * ⚠ Санах ойд — Railway дахин ассан үед тэглэгдэнэ. Хамгийн муудаа
+   * шөнө нэг «терминал холбогдохгүй» мэйл гарна, эсвэл өглөө нэг
+   * «сэргэлээ» мэйл дутна. Хоёр нь ч аюултай биш.
+   */
+  private quietDown = false;
+
   constructor(
     @Inject(DEVICE_GATEWAY) private readonly device: DeviceGateway,
     @InjectRepository(Device) private readonly devices: Repository<Device>,
@@ -143,6 +157,15 @@ export class DeviceHealthService {
     await this.devices.save(row);
 
     if (!wasDown) return;
+
+    // Шөнийн унтралтыг мэйлдээгүй бол сэргэлтийг ч мэйлдэхгүй — эс
+    // бөгөөс өдөр бүр «сэргэлээ» гэсэн НЭГ ТАЛТ мэйл явна.
+    if (this.quietDown) {
+      this.quietDown = false;
+      this.log.log('Терминал сэргэв — шөнийн хүлээгдсэн унтралт тул мэйлдсэнгүй');
+      return;
+    }
+
     if (!this.mayNotify(true)) {
       this.log.log('Терминал сэргэв — мэйл завсарлагад таарсан тул алгаслаа');
       return;
@@ -178,6 +201,8 @@ export class DeviceHealthService {
     const row = await this.row();
     if (!row) return;
 
+    const quiet = inQuietHours();
+
     // ⚠ «Аль хэдийн мэдэгдсэн»-ийг `online` БИШ, `lastErrorAt`-аар
     // тэмдэглэнэ.
     //
@@ -188,11 +213,48 @@ export class DeviceHealthService {
     // сануулгыг дуугүй алгассан.
     //
     // `lastErrorAt`-ыг ЗӨВХӨН энэ үйлчилгээ бичдэг тул андуурахгүй.
-    const alreadyNotified = row.lastErrorAt !== null;
+    let alreadyNotified = row.lastErrorAt !== null;
+
+    /*
+     * ⚠ ЗААЛ НЭЭГДСЭН Ч ХЭВЭЭР УНТАРСАН — ЭНЭ Л ЖИНХЭНЭ САНУУЛГА
+     *
+     * Шөнө мэйлийг алгасахдаа `lastErrorAt`-ыг тавьсан байна. Түүнийг
+     * «аль хэдийн мэдэгдсэн» гэж уншвал өглөөний сануулга ХЭЗЭЭ Ч
+     * явахгүй болно — заалны компьютер асаагүй өдөр яг тэр нь хэрэгтэй.
+     * Тиймээс завсарлага дуусмагц шилжилтийг ШИНЭЭР тоолно.
+     */
+    if (!quiet && this.quietDown) {
+      this.quietDown = false;
+      this.toldOnline = null;
+      alreadyNotified = false;
+    }
+
     row.online = false;
     row.lastError = reason;
     if (!alreadyNotified) row.lastErrorAt = new Date();
     await this.devices.save(row);
+
+    /*
+     * ★ ШӨНИЙН ХҮЛЭЭГДСЭН УНТРАЛТЫГ МЭЙЛДЭХГҮЙ
+     *
+     * Терминал руу зөвхөн заалны Windows PC дээрх `cloudflared`-аар
+     * хүрнэ. Заал хаагдахад тэр PC унтардаг тул холболт тасрах нь
+     * АЛДАА БИШ, хуваарь. Завсарлагагүй бол ~22:15-д «терминал
+     * холбогдохгүй байна», ~07:05-д «сэргэлээ» гэсэн хос мэйл ӨДӨР
+     * БҮР явж, хоёр хаягт сард ~60 мэйл болно — хүн уншихаа болино,
+     * тэгээд ЖИНХЭНЭ асуудал нүднээс алдагдана.
+     *
+     * ⚠ САНД БИЧСЭН ХЭВЭЭР (дээр). Дашборд «унтарсан» гэдгийг
+     * үргэлж зөв харуулна — зөвхөн МЭЙЛ хаагдана.
+     */
+    if (quiet) {
+      this.quietDown = true;
+      this.log.log(
+        `Терминал холбогдохгүй (${reason}) — заал хаалттай цаг ` +
+          `(${QUIET_FROM_HOUR}:00–${QUIET_TO_HOUR}:00) тул мэйлдсэнгүй`,
+      );
+      return;
+    }
 
     // ⚠ Унтарсан хэвээр бол дахин мэйлдэхгүй. Зөвхөн шилжилтэд.
     if (alreadyNotified) return;

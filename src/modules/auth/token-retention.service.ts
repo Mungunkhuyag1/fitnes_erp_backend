@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { RefreshToken } from './refresh-token.entity';
+import { CRON, SCHEDULE_TZ } from '../../config/schedule';
 
 /**
  * Хугацаа дууссан refresh token-ыг устгана.
@@ -25,7 +26,7 @@ export class TokenRetentionService {
     private readonly repo: Repository<RefreshToken>,
   ) {}
 
-  @Cron('40 4 * * *', { name: 'token-prune', timeZone: 'Asia/Ulaanbaatar' })
+  @Cron(CRON.TOKEN_PRUNE, { name: 'token-prune', timeZone: SCHEDULE_TZ })
   async tick(): Promise<void> {
     const removed = await this.prune();
     if (removed) this.log.log(`Хуучин токен цэвэрлэв: ${removed} мөр`);

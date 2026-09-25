@@ -19,6 +19,7 @@ import {
   type DeviceGateway,
   type DeviceUserRow,
 } from './device.gateway';
+import { CRON, SCHEDULE_TZ } from '../../config/schedule';
 
 /** Нэг талбарын зөрүү — хоёр талын утгыг ЗЭРЭГ харуулна. */
 export interface FieldDiff {
@@ -130,18 +131,34 @@ export class DeviceAuditService {
   ) {}
 
   /**
-   * Өдөр бүр 02:30 — `DeviceReconcileService` (03:00)-аас ӨМНӨ.
+   * Өдөр бүр ӨГЛӨӨ 07:00 — `DeviceReconcileService` (07:30)-аас ӨМНӨ.
    *
-   * Энэ нь зөрүүг олж дараалалд оруулна, тэр нь үлдсэн алдааг нөхнө.
-   * Мөн 09:00-ийн сануулга явахаас өмнө бүх зүйл цэгцэрсэн байна.
+   * ★ ЯАГААД ШӨНӨ БИШ ВЭ (өмнө 02:30 байв)
+   *
+   * Терминал руу зөвхөн заалны Windows PC дээрх `cloudflared`-аар
+   * хүрнэ. Заал хаагдахад тэр PC УНТАРДАГ тул шөнө ажиллах нь 530
+   * алдаа цуглуулахаас өөр юу ч хийхгүй байлаа: тулгалт `ran: false`
+   * гэж чимээгүй гарч, зөрүү өдөржин засагдаагүй үлддэг.
+   *
+   * 07:00 бол PC асаад туннель дээшилсэн, харин 09:00-ийн сануулга
+   * явахаас өмнөх үе. Цагийг `CRON_DEVICE_AUDIT`-аар өөрчилж болно.
    *
    * ⚠ ӨДӨРТ НЭГ УДАА. Бүх хэрэглэгчийг хуудаслаж татах нь хүнд
    * (337 хүн ≈ 12 хүсэлт) — ойрхон давтвал терминал удаашрана.
    */
-  @Cron('30 2 * * *', { name: 'device-audit', timeZone: 'Asia/Ulaanbaatar' })
+  @Cron(CRON.DEVICE_AUDIT, { name: 'device-audit', timeZone: SCHEDULE_TZ })
   async tick(): Promise<void> {
     const r = await this.run();
-    if (!r.ran) return;
+    // ⚠ ЧИМЭЭГҮЙ БАЙЖ БОЛОХГҮЙ. Хэрэв 07:00-д ч туннель дээшлээгүй
+    // бол ЯГ ТЭР нь админд хэрэгтэй мэдээлэл — заалны PC асаагаагүй.
+    // (`log.debug` нь production-д хаягддаг тул `warn`.)
+    if (!r.ran) {
+      this.log.warn(
+        `Терминалын тулгалт ажиллаагүй: ${r.reason ?? 'шалтгаан тодорхойгүй'} — ` +
+          `заалны компьютер ассан эсэхийг шалгана уу`,
+      );
+      return;
+    }
     if (r.extras.length) {
       this.log.warn(
         `Терминал дээр WinFit-д байхгүй ${r.extras.length} хэрэглэгч байна — ` +
