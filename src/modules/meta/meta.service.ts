@@ -202,9 +202,17 @@ export class MetaService {
      */
     const wanted = input.pageId?.trim();
     if (wanted && me.id !== wanted) {
+      /*
+       * ⚠ Нэрийг зөвхөн МЭДЭГДЭЖ байвал бичнэ.
+       *
+       * `debug_token`-оор нөхсөн үед нэр нь «Хуудас <id>» болдог тул
+       * «Хуудас 976… (976…)» гэж ижил дугаар хоёр удаа гарч, ажилтан
+       * «хоёр өөр хуудас уу?» гэж эргэлзэнэ.
+       */
+      const who = me.name.endsWith(me.id) ? me.id : `${me.name} (${me.id})`;
       throw new BadRequestException(
-        `Токен нь өөр хуудсынх байна: ${me.name} (${me.id}). ` +
-          'Page ID-г шалгана уу.',
+        `Токен нь ${who} хуудсынх байна, та ${wanted} гэж бичжээ. ` +
+          'Page ID-г засах эсвэл хоосон орхино уу.',
       );
     }
 
