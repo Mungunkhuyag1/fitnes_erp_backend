@@ -61,6 +61,28 @@ export class MetaPage {
   @Column({ name: 'verify_token', type: 'varchar', length: 120, nullable: true })
   verifyToken: string | null;
 
+  /**
+   * Meta ХЭЗЭЭ webhook хаягийг баталгаажуулсан (`GET hub.challenge`).
+   *
+   * `null` бол Meta-гийн самбарт Callback URL хараахан бүртгэгдээгүй
+   * эсвэл баталгаажуулалт унасан.
+   */
+  @Column({ name: 'verified_at', type: 'timestamptz', nullable: true })
+  verifiedAt: Date | null;
+
+  /**
+   * Сүүлийн түлхэлт ХЭЗЭЭ ирсэн.
+   *
+   * ⚠ Гарын үсэг шалгахаас ӨМНӨ бичигдэнэ — «ирсэн ч татгалзсан»
+   * гэдгийг «огт ирээгүй»-гээс ялгах цорын ганц арга.
+   */
+  @Column({ name: 'last_webhook_at', type: 'timestamptz', nullable: true })
+  lastWebhookAt: Date | null;
+
+  /** Сүүлийн түлхэлт татгалзсан шалтгаан. Амжилттай бол `null`. */
+  @Column({ name: 'last_webhook_error', type: 'varchar', length: 300, nullable: true })
+  lastWebhookError: string | null;
+
   @Column({ type: 'boolean', default: true })
   active: boolean;
 

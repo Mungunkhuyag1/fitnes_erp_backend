@@ -94,6 +94,7 @@ export class MetaWebhookController {
       throw new UnauthorizedException();
     }
     this.log.log('Facebook webhook хаяг баталгаажлаа');
+    await this.meta.markVerified();
     return challenge;
   }
 
@@ -104,7 +105,20 @@ export class MetaWebhookController {
       ? (req.body as Buffer)
       : Buffer.from(typeof req.body === 'string' ? req.body : '');
 
-    await this.assertSignature(req, raw);
+    /*
+     * ⚠ ГАРЫН ҮСЭГ ШАЛГАХААС ӨМНӨ тэмдэглэнэ.
+     *
+     * Дараа нь тэмдэглэвэл «app secret буруу» нь «Meta огт хандахгүй
+     * байна»-тай ЯГ ИЖИЛ харагдана — гэтэл тэр хоёр нь тэс өөр газар
+     * засагддаг.
+     */
+    try {
+      await this.assertSignature(req, raw);
+    } catch (e) {
+      await this.meta.noteWebhook((e as Error).message);
+      throw e;
+    }
+    await this.meta.noteWebhook(null);
 
     let body: WebhookBody;
     try {

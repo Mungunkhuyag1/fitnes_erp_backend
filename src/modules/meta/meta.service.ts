@@ -250,6 +250,20 @@ export class MetaService {
     scopes: string[];
     /** Ажиллахад ЗААВАЛ хэрэгтэй атлаа токенд алга. */
     missingScopes: string[];
+    /**
+     * Meta БИДЭН РҮҮ хандаж байна уу.
+     *
+     * Энэ нь «мессеж ирэхгүй байна» гэсэн гомдлыг ГУРВАН өөр
+     * асуудалд салгана — `1788240000000` миграцын тайлбарыг үз.
+     */
+    webhook: {
+      /** Callback URL баталгаажсан эсэх. */
+      verifiedAt: Date | null;
+      /** Сүүлийн түлхэлт. `null` = Meta ХЭЗЭЭ Ч хандаагүй. */
+      lastAt: Date | null;
+      /** Сүүлийн түлхэлт татгалзсан шалтгаан. */
+      error: string | null;
+    };
     subscription: {
       /** Хуудас ЭНЭ аппад захиалагдсан эсэх. */
       subscribed: boolean;
@@ -271,6 +285,7 @@ export class MetaService {
         expiresAt: null,
         scopes: [],
         missingScopes: [...REQUIRED_SCOPES],
+        webhook: { verifiedAt: null, lastAt: null, error: null },
         subscription: { subscribed: false, fields: [], missing: [...REQUIRED_FIELDS] },
         webhookUrl,
       };
@@ -285,6 +300,11 @@ export class MetaService {
         expiresAt: null,
         scopes: [],
         missingScopes: [...REQUIRED_SCOPES],
+        webhook: {
+          verifiedAt: p.verifiedAt,
+          lastAt: p.lastWebhookAt,
+          error: p.lastWebhookError,
+        },
         subscription: { subscribed: false, fields: [], missing: [...REQUIRED_FIELDS] },
         webhookUrl,
       };
@@ -352,6 +372,11 @@ export class MetaService {
         : { ok: false, error: tokenErr },
       page,
       expiresAt,
+      webhook: {
+        verifiedAt: p.verifiedAt,
+        lastAt: p.lastWebhookAt,
+        error: p.lastWebhookError,
+      },
       scopes,
       /*
        * ⚠ `scopes` хоосон байвал «бүгд дутуу» гэж ХЭЛЭХГҮЙ — App ID
@@ -438,6 +463,31 @@ export class MetaService {
         // App ID буруу байж болно — анхны алдааг дамжуулна.
       }
       return { page: null, viaDebug: false, error };
+    }
+  }
+
+  /** Meta хаягийг баталгаажуулав (`GET hub.challenge`). */
+  async markVerified(): Promise<void> {
+    await this.pages.update({ active: true }, { verifiedAt: new Date() });
+  }
+
+  /**
+   * Түлхэлт ИРСЭНИЙГ тэмдэглэх.
+   *
+   * ⚠ Гарын үсэг шалгахаас ӨМНӨ дуудагдана — эс бөгөөс «app secret
+   * буруу» нь «Meta огт хандахгүй байна»-тай ижил харагдана.
+   *
+   * ⚠ Алдааг ЗАЛГИНА: оношилгооны бичилт унасан гэж жинхэнэ
+   * түлхэлтийг хаяж болохгүй. Мөн 5 секундын дотор 200 буцаах ёстой.
+   */
+  async noteWebhook(error: string | null): Promise<void> {
+    try {
+      await this.pages.update(
+        { active: true },
+        { lastWebhookAt: new Date(), lastWebhookError: error?.slice(0, 300) ?? null },
+      );
+    } catch {
+      /* оношилгоо нь ажлыг зогсоох ёсгүй */
     }
   }
 
