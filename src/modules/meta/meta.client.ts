@@ -161,7 +161,10 @@ export class MetaClient {
     expires_at?: number;
     data_access_expires_at?: number;
     scopes?: string[];
+    /** `'PAGE'` бол Page token мөн. */
     type?: string;
+    /** Page token-ы хувьд ХУУДАСНЫ ID. */
+    profile_id?: string;
   }> {
     const r = await this.call<{ data?: Record<string, unknown> }>(
       `/debug_token?input_token=${encodeURIComponent(input)}`,
@@ -173,6 +176,7 @@ export class MetaClient {
       data_access_expires_at?: number;
       scopes?: string[];
       type?: string;
+      profile_id?: string;
     };
   }
 

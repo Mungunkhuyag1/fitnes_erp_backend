@@ -137,12 +137,63 @@ export class MetaService {
     },
     staffId: string,
   ): Promise<{ pageId: string; pageName: string }> {
-    let me: { id: string; name: string };
+    const api = new MetaClient(input.token);
+
+    /*
+     * ★ ТОКЕНЫГ ХОЁР АРГААР ШАЛГАНА
+     *
+     * `/me` нь хуудасны нэрийг өгдөг тул эхний сонголт — ажилтан
+     * «яг энэ хуудас мөн үү» гэдгийг нүдээр баталгаажуулна.
+     *
+     * ⚠ ГЭВЧ `/me` нь `pages_read_engagement` эрх шаарддаг ба
+     * Messenger use case түүнийг АНХНААСАА өгдөггүй. Тэр эрхийг
+     * нэмэхийн тулд хуудсыг САЛГААД ДАХИН холбож, зөвшөөрлийн
+     * цонхыг дахин өнгөрүүлэх шаардлагатай — шинэ суулгалт бүрд
+     * хүнийг гацаадаг, харин бидэнд ХУУДАСНЫ НЭРЭЭС өөр юу ч
+     * өгдөггүй алхам.
+     *
+     * Тиймээс унавал `/debug_token`-оор нөхнө: тэр нь АППЫН токеноор
+     * ажилладаг (`<app_id>|<app_secret>`) бөгөөд хуудасны ямар ч эрх
+     * шаардахгүй. `profile_id` нь хуудасны ID-г өгнө — системд
+     * ҮНЭНДЭЭ хэрэгтэй цорын ганц зүйл. Нэр нь зөвхөн гоо сайхан.
+     *
+     * ⚠ Ажиллах бусад дуудлагууд өөрсдийн эрхээ шаардсаар байна:
+     * `send` → pages_messaging, `subscribeApp` → pages_manage_metadata.
+     * Тэднийг «Шалгах» товч илчилнэ.
+     */
+    let me: { id: string; name: string } | null = null;
+    let firstError = '';
     try {
-      me = await new MetaClient(input.token).me();
+      me = await api.me();
     } catch (e) {
-      const detail = e instanceof MetaApiError ? e.detail : String(e);
-      throw new BadRequestException(`Токен шалгагдсангүй: ${explain(detail)}`);
+      firstError = e instanceof MetaApiError ? e.detail : String(e);
+    }
+
+    if (!me && input.appId?.trim()) {
+      try {
+        const d = await api.debugToken(
+          input.token,
+          `${input.appId.trim()}|${input.appSecret}`,
+        );
+        if (d.is_valid && d.profile_id) {
+          me = {
+            id: d.profile_id,
+            // Нэрийг уншиж чадсангүй — ID-гаар нэрлэнэ. Ажилтан
+            // Meta дээрх нэртэй нь тааруулж харна.
+            name: `Хуудас ${d.profile_id}`,
+          };
+          this.log.warn(
+            'Хуудасны нэр уншигдсангүй (pages_read_engagement алга) — ' +
+              'токеныг debug_token-оор баталлаа',
+          );
+        }
+      } catch {
+        // App ID буруу байж болно — доорх анхны алдааг харуулна.
+      }
+    }
+
+    if (!me) {
+      throw new BadRequestException(`Токен шалгагдсангүй: ${explain(firstError)}`);
     }
 
     /*
