@@ -142,7 +142,7 @@ export class MetaService {
       me = await new MetaClient(input.token).me();
     } catch (e) {
       const detail = e instanceof MetaApiError ? e.detail : String(e);
-      throw new BadRequestException(`Токен шалгагдсангүй: ${detail}`);
+      throw new BadRequestException(`Токен шалгагдсангүй: ${explain(detail)}`);
     }
 
     /*
@@ -634,4 +634,45 @@ export class MetaService {
       ]),
     );
   }
+}
+
+/**
+ * Meta-гийн алдааг ХИЙХ ЗҮЙЛ болгон хөрвүүлнэ.
+ *
+ * ★ ЯАГААД ХЭРЭГТЭЙ ВЭ
+ *
+ * Graph-ийн алдаанууд нь баримтын гурван холбоос бүхий 300 тэмдэгтийн
+ * англи догол мөр байдаг. Ажилтан түүнийг уншаад ЮУ дарахаа мэдэхгүй.
+ * Хамгийн түгээмэл гурвыг нь шууд зааврaaр солино.
+ *
+ * ⚠ Танихгүй алдааг НУУХГҮЙ — эх бичвэрийг нь дамжуулна. Буруу
+ * таамаглаж «засвар» санал болговол ажилтан байхгүй асуудлыг хөөнө.
+ */
+function explain(detail: string): string {
+  // (#100) … 'pages_read_engagement' …
+  if (/pages_read_engagement|Page Public (Content|Metadata) Access/i.test(detail)) {
+    return (
+      'Токенд «pages_read_engagement» эрх дутуу байна. ' +
+      'Meta → апп → Customize use case → Permissions and features → ' +
+      '«pages_read_engagement» нэмээд, дараа нь Messenger API Settings ' +
+      '→ Generate token-оор токеныг ДАХИН ҮҮСГЭ. ' +
+      '⚠ Эрх нь токен дотор шигтгэгддэг тул хуучин токен ажиллахгүй. ' +
+      '(docs/17 §11)'
+    );
+  }
+  // 190 = токен хүчингүй / хугацаа дууссан
+  if (/expired|session has been invalidated|Error validating access token/i.test(detail)) {
+    return (
+      'Токен хүчингүй эсвэл хугацаа дууссан байна. Meta → Messenger ' +
+      'API Settings → Generate token-оор шинийг үүсгэнэ үү. ' +
+      'Хэзээ ч дуусахгүй токен авах: docs/17 §4'
+    );
+  }
+  if (/Invalid OAuth access token|Cannot parse access token/i.test(detail)) {
+    return (
+      'Токен буруу хуулагдсан бололтой — эхэнд/төгсгөлд нь зай, эсвэл ' +
+      'дутуу байж магадгүй. Бүтнээр нь дахин хуулна уу.'
+    );
+  }
+  return detail;
 }
