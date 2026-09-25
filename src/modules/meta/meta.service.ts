@@ -138,58 +138,19 @@ export class MetaService {
     staffId: string,
   ): Promise<{ pageId: string; pageName: string }> {
     const api = new MetaClient(input.token);
-
-    /*
-     * ★ ТОКЕНЫГ ХОЁР АРГААР ШАЛГАНА
-     *
-     * `/me` нь хуудасны нэрийг өгдөг тул эхний сонголт — ажилтан
-     * «яг энэ хуудас мөн үү» гэдгийг нүдээр баталгаажуулна.
-     *
-     * ⚠ ГЭВЧ `/me` нь `pages_read_engagement` эрх шаарддаг ба
-     * Messenger use case түүнийг АНХНААСАА өгдөггүй. Тэр эрхийг
-     * нэмэхийн тулд хуудсыг САЛГААД ДАХИН холбож, зөвшөөрлийн
-     * цонхыг дахин өнгөрүүлэх шаардлагатай — шинэ суулгалт бүрд
-     * хүнийг гацаадаг, харин бидэнд ХУУДАСНЫ НЭРЭЭС өөр юу ч
-     * өгдөггүй алхам.
-     *
-     * Тиймээс унавал `/debug_token`-оор нөхнө: тэр нь АППЫН токеноор
-     * ажилладаг (`<app_id>|<app_secret>`) бөгөөд хуудасны ямар ч эрх
-     * шаардахгүй. `profile_id` нь хуудасны ID-г өгнө — системд
-     * ҮНЭНДЭЭ хэрэгтэй цорын ганц зүйл. Нэр нь зөвхөн гоо сайхан.
-     *
-     * ⚠ Ажиллах бусад дуудлагууд өөрсдийн эрхээ шаардсаар байна:
-     * `send` → pages_messaging, `subscribeApp` → pages_manage_metadata.
-     * Тэднийг «Шалгах» товч илчилнэ.
-     */
-    let me: { id: string; name: string } | null = null;
-    let firstError = '';
-    try {
-      me = await api.me();
-    } catch (e) {
-      firstError = e instanceof MetaApiError ? e.detail : String(e);
-    }
-
-    if (!me && input.appId?.trim()) {
-      try {
-        const d = await api.debugToken(
-          input.token,
-          `${input.appId.trim()}|${input.appSecret}`,
-        );
-        if (d.is_valid && d.profile_id) {
-          me = {
-            id: d.profile_id,
-            // Нэрийг уншиж чадсангүй — ID-гаар нэрлэнэ. Ажилтан
-            // Meta дээрх нэртэй нь тааруулж харна.
-            name: `Хуудас ${d.profile_id}`,
-          };
-          this.log.warn(
-            'Хуудасны нэр уншигдсангүй (pages_read_engagement алга) — ' +
-              'токеныг debug_token-оор баталлаа',
-          );
-        }
-      } catch {
-        // App ID буруу байж болно — доорх анхны алдааг харуулна.
-      }
+    const r = await this.resolvePage(
+      api,
+      input.token,
+      input.appId?.trim() ?? null,
+      input.appSecret,
+    );
+    const me = r.page;
+    const firstError = r.error;
+    if (r.viaDebug) {
+      this.log.warn(
+        'Хуудасны нэр уншигдсангүй (pages_read_engagement алга) — ' +
+          'токеныг debug_token-оор баталлаа',
+      );
     }
 
     if (!me) {
@@ -258,10 +219,14 @@ export class MetaService {
    */
   async check(): Promise<{
     connected: boolean;
-    token: { ok: boolean; error?: string };
+    token: { ok: boolean; error?: string; note?: string };
     page: { id: string; name: string } | null;
-    /** `null` = App ID өгөөгүй тул шалгах боломжгүй. */
-    expiresAt: Date | null | 'never';
+    /**
+     * `'never'` — хэзээ ч дуусахгүй
+     * `null`    — App ID өгөөгүй тул шалгах боломжгүй
+     * `'unknown'` — App ID байгаа ч шалгалт бүтсэнгүй
+     */
+    expiresAt: Date | null | 'never' | 'unknown';
     subscription: {
       /** Хуудас ЭНЭ аппад захиалагдсан эсэх. */
       subscribed: boolean;
@@ -298,19 +263,23 @@ export class MetaService {
       };
     }
     const api = new MetaClient(token);
+    const secret = p.appSecretEnc ? open(p.appSecretEnc, this.key) : null;
 
-    // ── 1. Токен амьд эсэх ──
-    let page: { id: string; name: string } | null = null;
-    let tokenErr: string | undefined;
-    try {
-      page = await api.me();
-    } catch (e) {
-      tokenErr = e instanceof MetaApiError ? e.detail : String(e);
-    }
+    // ── 1. Токен амьд эсэх — `connect()`-тэй ИЖИЛ логикоор ──
+    const r = await this.resolvePage(api, token, p.appId, secret);
+    const page = r.page;
+    const tokenErr = r.error || undefined;
 
     // ── 2. Хэзээ дуусах (App ID өгсөн бол) ──
-    let expiresAt: Date | null | 'never' = null;
-    const secret = p.appSecretEnc ? open(p.appSecretEnc, this.key) : null;
+    /*
+     * ⚠ `'unknown'` ба `null` хоёрыг ЯЛГАНА.
+     *
+     * Өмнө нь хоёуланг `null` болгож «App ID өгөөгүй тул мэдэхгүй»
+     * гэж харуулдаг байв — гэтэл App ID хадгалагдсан, зүгээр л
+     * `/me` унасан тул энэ блок огт ажиллаагүй байлаа. Ажилтан
+     * байхгүй асуудлыг хөөнө.
+     */
+    let expiresAt: Date | null | 'never' | 'unknown' = null;
     if (page && p.appId && secret) {
       try {
         const d = await api.debugToken(token, `${p.appId}|${secret}`);
@@ -318,9 +287,12 @@ export class MetaService {
         // харагдах тул ЗААВАЛ тусад нь тэмдэглэнэ.
         expiresAt = !d.expires_at ? 'never' : new Date(d.expires_at * 1000);
       } catch {
-        // App ID буруу байж болно — энэ нь холболтыг эвдэхгүй.
-        expiresAt = null;
+        expiresAt = 'unknown';
       }
+    } else if (page && !p.appId) {
+      expiresAt = null; // App ID үнэхээр өгөөгүй
+    } else if (page) {
+      expiresAt = 'unknown';
     }
 
     // ── 3. Хуудас аппад захиалагдсан уу, ямар талбараар ──
@@ -340,7 +312,15 @@ export class MetaService {
 
     return {
       connected: !!page,
-      token: page ? { ok: true } : { ok: false, error: tokenErr },
+      token: page
+        ? {
+            ok: true,
+            // Токен АЖИЛЛАЖ байна, зүгээр л нэрийг уншиж чадаагүй.
+            note: r.viaDebug
+              ? 'Нэр уншигдсангүй (pages_read_engagement алга) — ажиллагаанд нөлөөгүй'
+              : undefined,
+          }
+        : { ok: false, error: tokenErr },
       page,
       expiresAt,
       subscription: {
@@ -375,6 +355,52 @@ export class MetaService {
     }
     this.log.log(`Facebook хуудас захиалагдлаа: ${p.pageName ?? p.pageId}`);
     return { ok: true as const, fields: [...REQUIRED_FIELDS] };
+  }
+
+  /**
+   * ТОКЕНООС ХУУДСЫГ ТОДОРХОЙЛОХ — хоёр аргаар.
+   *
+   * ★ ЯАГААД НЭГ ГАЗАР ВЭ
+   *
+   * Эхлээд нөөц замыг зөвхөн `connect()`-д бичсэн нь АЛДАА байв:
+   * холболт амжилттай болсон атлаа «Шалгах» нь ЯГ ТЭР токеныг
+   * «унасан» гэж хэлж, ажилтан алийг нь итгэхээ мэдэхгүй болов.
+   * Хоёр зам нэг дүгнэлт өгөх ёстой.
+   *
+   * `/me` нь нэрийг өгдөг ч `pages_read_engagement` шаарддаг —
+   * Messenger use case түүнийг өгдөггүй. Унавал `/debug_token`
+   * (аппын токен, хуудасны эрх шаардахгүй) нь ID-г өгнө.
+   */
+  private async resolvePage(
+    api: MetaClient,
+    token: string,
+    appId: string | null,
+    appSecret: string | null,
+  ): Promise<{
+    page: { id: string; name: string } | null;
+    /** Нэр уншигдсангүй — ID-гаар нэрлэсэн. */
+    viaDebug: boolean;
+    error: string;
+  }> {
+    try {
+      return { page: await api.me(), viaDebug: false, error: '' };
+    } catch (e) {
+      const error = e instanceof MetaApiError ? e.detail : String(e);
+      if (!appId || !appSecret) return { page: null, viaDebug: false, error };
+      try {
+        const d = await api.debugToken(token, `${appId}|${appSecret}`);
+        if (d.is_valid && d.profile_id) {
+          return {
+            page: { id: d.profile_id, name: `Хуудас ${d.profile_id}` },
+            viaDebug: true,
+            error: '',
+          };
+        }
+      } catch {
+        // App ID буруу байж болно — анхны алдааг дамжуулна.
+      }
+      return { page: null, viaDebug: false, error };
+    }
   }
 
   async disconnect(): Promise<{ ok: true }> {
