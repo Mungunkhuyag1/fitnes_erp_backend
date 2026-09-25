@@ -77,8 +77,9 @@ export const SCHEDULE_TZ = process.env.TZ ?? 'Asia/Ulaanbaatar';
 /**
  * ЗААЛ ХААЛТТАЙ ЦАГ — терминалд хүрэхгүй гэдгийг УРЬДЧИЛАН мэдэх муж.
  *
- * `DEVICE_QUIET_FROM=0` тавибал завсарлага бүрэн унтарна (24 цагийн
- * турш мэйл явна).
+ * ⚠ Завсарлагыг УНТРААХ гэж байвал ХОЁУЛАНГ НЬ ижил болгоно
+ * (`DEVICE_QUIET_FROM=0 DEVICE_QUIET_TO=0`). `FROM=0` гэж нэгийг л
+ * тавибал 00:00–07:00 гэсэн муж ХЭВЭЭР үлдэнэ.
  */
 export const QUIET_FROM_HOUR = Number(process.env.DEVICE_QUIET_FROM ?? 22);
 export const QUIET_TO_HOUR = Number(process.env.DEVICE_QUIET_TO ?? 7);
