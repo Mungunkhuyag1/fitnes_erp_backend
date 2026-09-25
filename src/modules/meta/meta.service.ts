@@ -14,6 +14,22 @@ import { MetaPage } from './meta-page.entity';
 import { MetaApiError, MetaClient } from './meta.client';
 
 /**
+ * Хуудас ЗААВАЛ захиалах ёстой webhook талбарууд.
+ *
+ * ⚠ `message_echoes`-гүй бол УТСАН дээрх Messenger-ээс бичсэн хариу
+ * WinFit-д харагдахгүй: ажилтан аль хэдийн хариулсан яриаг дахин
+ * хариулж, гишүүн хоёр удаа ижил зүйл сонсоно.
+ *
+ * `messaging_postbacks` нь товчны даралт — одоогоор товч ашиглахгүй ч
+ * захиалах нь үнэгүй, хожим нэмэхэд Meta руу дахин орох шаардлагагүй.
+ */
+const REQUIRED_FIELDS = [
+  'messages',
+  'message_echoes',
+  'messaging_postbacks',
+] as const;
+
+/**
  * ★ ХАРИУ БИЧИХ ЦОНХ — META-ГИЙН ДҮРЭМ
  *
  * Хэрэглэгч сүүлд бичсэнээс хойш:
@@ -85,6 +101,7 @@ export class MetaService {
     verifyToken: string | null;
     hasToken: boolean;
     hasAppSecret: boolean;
+    hasAppId: boolean;
     connectedAt: Date | null;
     webhookUrl: string;
   }> {
@@ -97,6 +114,7 @@ export class MetaService {
       verifyToken: p?.verifyToken ?? null,
       hasToken: !!p?.tokenEnc,
       hasAppSecret: !!p?.appSecretEnc,
+      hasAppId: !!p?.appId,
       connectedAt: p?.connectedAt ?? null,
       webhookUrl: `${base}/api/webhooks/meta`,
     };
@@ -112,6 +130,7 @@ export class MetaService {
   async connect(
     input: {
       pageId?: string;
+      appId?: string;
       token: string;
       appSecret: string;
       verifyToken: string;
@@ -146,6 +165,9 @@ export class MetaService {
     row.pageName = me.name;
     row.tokenEnc = seal(input.token, this.key);
     row.appSecretEnc = seal(input.appSecret, this.key);
+    // ⚠ Хоосон бол ӨМНӨХИЙГ УСТГАХГҮЙ: маягтыг дахин бөглөхдөө
+    // App ID-г орхиход хугацааны шалгалт чимээгүй унтарна.
+    if (input.appId?.trim()) row.appId = input.appId.trim();
     row.verifyToken = input.verifyToken;
     row.active = true;
     row.connectedAt = new Date();
@@ -154,6 +176,146 @@ export class MetaService {
 
     this.log.log(`Facebook хуудас холбогдлоо: ${me.name} (${me.id})`);
     return { pageId: me.id, pageName: me.name };
+  }
+
+  /**
+   * ХОЛБОЛТЫН ОНОШИЛГОО.
+   *
+   * ★ ЯАГААД ХЭРЭГТЭЙ ВЭ
+   *
+   * Тохиргооны маягт нь «хадгалагдлаа» гэж хэлнэ, Meta-гийн самбар
+   * «Verified» гэж хэлнэ — гэтэл НЭГ Ч мессеж ирэхгүй байж болно.
+   * Шалтгаан нь ихэвчлэн гурвын нэг:
+   *
+   *   1. хуудсыг аппад ЗАХИАЛААГҮЙ (`subscribed_apps` хоосон)
+   *   2. `message_echoes` захиалаагүй — утаснаас бичсэн хариу алга
+   *   3. токен хугацаа дууссан (60 хоног) — чимээгүй үхсэн
+   *
+   * Гуравт нь ч дэлгэц дээр ялгаагүй харагдана. Энэ дуудлага нь
+   * ТААМАГЛАЛЫГ баримтаар солино.
+   *
+   * ⚠ Алдааг ШИДЭХГҮЙ. Оношилгоо нь бүтэлгүйтсэн ч ҮЛДСЭН мэдээллийг
+   * харуулах ёстой: «токен унасан» гэдэг нь өөрөө хариулт.
+   */
+  async check(): Promise<{
+    connected: boolean;
+    token: { ok: boolean; error?: string };
+    page: { id: string; name: string } | null;
+    /** `null` = App ID өгөөгүй тул шалгах боломжгүй. */
+    expiresAt: Date | null | 'never';
+    subscription: {
+      /** Хуудас ЭНЭ аппад захиалагдсан эсэх. */
+      subscribed: boolean;
+      fields: string[];
+      /** Дутуу байгаа ЗАЙЛШГҮЙ талбарууд. */
+      missing: string[];
+      error?: string;
+    };
+    webhookUrl: string;
+  }> {
+    const base = this.config.get<string>('apiBaseUrl') ?? '';
+    const webhookUrl = `${base}/api/webhooks/meta`;
+    const p = await this.page();
+    if (!p?.tokenEnc) {
+      return {
+        connected: false,
+        token: { ok: false, error: 'Хуудас холбогдоогүй байна' },
+        page: null,
+        expiresAt: null,
+        subscription: { subscribed: false, fields: [], missing: [...REQUIRED_FIELDS] },
+        webhookUrl,
+      };
+    }
+
+    const token = open(p.tokenEnc, this.key);
+    if (!token) {
+      return {
+        connected: false,
+        token: { ok: false, error: 'Токен уншигдсангүй — дахин холбоно уу' },
+        page: null,
+        expiresAt: null,
+        subscription: { subscribed: false, fields: [], missing: [...REQUIRED_FIELDS] },
+        webhookUrl,
+      };
+    }
+    const api = new MetaClient(token);
+
+    // ── 1. Токен амьд эсэх ──
+    let page: { id: string; name: string } | null = null;
+    let tokenErr: string | undefined;
+    try {
+      page = await api.me();
+    } catch (e) {
+      tokenErr = e instanceof MetaApiError ? e.detail : String(e);
+    }
+
+    // ── 2. Хэзээ дуусах (App ID өгсөн бол) ──
+    let expiresAt: Date | null | 'never' = null;
+    const secret = p.appSecretEnc ? open(p.appSecretEnc, this.key) : null;
+    if (page && p.appId && secret) {
+      try {
+        const d = await api.debugToken(token, `${p.appId}|${secret}`);
+        // ⚠ `0` бол ХЭЗЭЭ Ч дуусахгүй — `new Date(0)` нь 1970 он гэж
+        // харагдах тул ЗААВАЛ тусад нь тэмдэглэнэ.
+        expiresAt = !d.expires_at ? 'never' : new Date(d.expires_at * 1000);
+      } catch {
+        // App ID буруу байж болно — энэ нь холболтыг эвдэхгүй.
+        expiresAt = null;
+      }
+    }
+
+    // ── 3. Хуудас аппад захиалагдсан уу, ямар талбараар ──
+    let fields: string[] = [];
+    let subscribed = false;
+    let subErr: string | undefined;
+    if (page) {
+      try {
+        const apps = await api.subscribedApps(page.id);
+        subscribed = apps.length > 0;
+        // Хэд хэдэн апп захиалагдсан байж болно — БҮГДИЙГ нэгтгэнэ.
+        fields = [...new Set(apps.flatMap((a) => a.subscribed_fields ?? []))];
+      } catch (e) {
+        subErr = e instanceof MetaApiError ? e.detail : String(e);
+      }
+    }
+
+    return {
+      connected: !!page,
+      token: page ? { ok: true } : { ok: false, error: tokenErr },
+      page,
+      expiresAt,
+      subscription: {
+        subscribed,
+        fields,
+        missing: REQUIRED_FIELDS.filter((f) => !fields.includes(f)),
+        error: subErr,
+      },
+      webhookUrl,
+    };
+  }
+
+  /**
+   * Хуудсыг аппад ЗАХИАЛАХ — нэг товчоор.
+   *
+   * Энэ алхам нь Meta-гийн самбарт гараар хийгддэг ба хамгийн олон
+   * удаа мартагддаг. Graph нь үүнийг page token-оор зөвшөөрдөг тул
+   * гараар хийлгэх шаардлагагүй.
+   */
+  async subscribe(): Promise<{ ok: true; fields: string[] }> {
+    const p = await this.page();
+    if (!p) throw new BadRequestException('Хуудас холбогдоогүй байна');
+    const api = await this.client(p);
+    try {
+      await api.subscribeApp(p.pageId, REQUIRED_FIELDS);
+    } catch (e) {
+      const detail = e instanceof MetaApiError ? e.detail : String(e);
+      throw new BadRequestException(
+        `Захиалга бүтсэнгүй: ${detail}. Токен нь pages_manage_metadata ` +
+          'эрхтэй эсэхийг шалгана уу.',
+      );
+    }
+    this.log.log(`Facebook хуудас захиалагдлаа: ${p.pageName ?? p.pageId}`);
+    return { ok: true as const, fields: [...REQUIRED_FIELDS] };
   }
 
   async disconnect(): Promise<{ ok: true }> {

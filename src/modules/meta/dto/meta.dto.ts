@@ -35,6 +35,20 @@ export class ConnectPageDto {
   @MaxLength(500)
   token: string;
 
+  /**
+   * Заавал биш — өгвөл токен хэзээ дуусахыг шалгаж чадна.
+   *
+   * ⚠ Нууц БИШ: Meta-гийн самбарт App Secret-ийн ЯГ дээр, ил
+   * бичигдсэн байдаг. `app_secret`-тэй хосолж `/debug_token`-д
+   * шаардагдах аппын токен болно.
+   */
+  @ApiPropertyOptional({ example: '1234567890123456', description: 'Facebook App ID' })
+  @IsOptional()
+  @IsString()
+  @MinLength(5)
+  @MaxLength(40)
+  appId?: string;
+
   @ApiProperty({ description: 'App secret — түлхэлтийн гарын үсэг шалгахад' })
   @IsString()
   @MinLength(10)

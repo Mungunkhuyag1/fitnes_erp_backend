@@ -61,6 +61,44 @@ export class MetaController {
     return r;
   }
 
+  /**
+   * ⚠ Эрхийн шалгалтгүй — нууц утга буцаадаггүй, зөвхөн «ажиллаж
+   * байна уу» гэдгийг хэлнэ. Ресепшн «яагаад мессеж ирэхгүй байна»
+   * гэж асуухдаа өөрөө хараад админд тодорхой мэдээлэл өгч чадна.
+   */
+  @Get('check')
+  @ApiOperation({
+    summary: 'Оношилгоо — токен амьд уу, хуудас захиалагдсан уу',
+    description:
+      'Токен хүчинтэй эсэх, хэзээ дуусах (App ID өгсөн бол), хуудас ' +
+      'аппад захиалагдсан эсэх, ямар талбар дутуу байгаа.',
+  })
+  check() {
+    return this.meta.check();
+  }
+
+  /**
+   * ⚠ ADMIN — хуудасны webhook тохиргоог өөрчилнө.
+   */
+  @Roles(Role.ADMIN)
+  @Post('subscribe')
+  @ApiOperation({
+    summary: 'Хуудсыг аппад захиалах (messages, message_echoes…)',
+    description:
+      'Meta-гийн самбарт гараар хийдэг алхмыг орлоно — хамгийн олон ' +
+      'удаа мартагддаг тохиргоо.',
+  })
+  async subscribe(@CurrentUser() user: AuthUser) {
+    const r = await this.meta.subscribe();
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'meta.subscribe',
+      entity: 'meta_page',
+      after: { fields: r.fields },
+    });
+    return r;
+  }
+
   @Roles(Role.ADMIN)
   @Delete('connect')
   @ApiOperation({ summary: 'Холболтыг салгах' })

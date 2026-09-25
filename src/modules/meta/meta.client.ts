@@ -49,9 +49,22 @@ export class MetaClient {
 
   private async call<T>(
     path: string,
-    init?: { method?: string; body?: unknown },
+    init?: {
+      method?: string;
+      body?: unknown;
+      /**
+       * Өөр токеноор дуудах.
+       *
+       * ⚠ `/debug_token` нь ӨӨРИЙГӨӨ шалгуулахыг зөвшөөрдөггүй —
+       * АППЫН токен шаарддаг. Энэ сонголтгүй бол URL-д хоёр
+       * `access_token` наалдаж, Graph нь алийг нь авахыг таамаглах
+       * шаардлагатай болно.
+       */
+      token?: string;
+    },
   ): Promise<T> {
-    const url = `${GRAPH}${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(this.token)}`;
+    const tk = init?.token ?? this.token;
+    const url = `${GRAPH}${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(tk)}`;
     const res = await fetch(url, {
       method: init?.method ?? 'GET',
       headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
@@ -86,6 +99,81 @@ export class MetaClient {
    */
   async me(): Promise<{ id: string; name: string }> {
     return this.call<{ id: string; name: string }>('/me?fields=id,name');
+  }
+
+  /**
+   * Хуудас ямар аппад, ЯМАР ТАЛБАРААР захиалагдсан бэ.
+   *
+   * ★ ЭНЭ БОЛ №1 АЛДААНЫ ЦОР ГАНЦ БАТАЛГАА
+   *
+   * Тохиргооны хамгийн түгээмэл алдаа нь Meta-гийн самбарт webhook
+   * хаягийг баталгаажуулаад ХУУДСАА ЗАХИАЛАХАА мартах. Тэр үед
+   * баталгаажуулалт нь ногоон, бүх зүйл зөв мэт харагдана — гэвч
+   * НЭГ Ч мессеж ирэхгүй. Шалтгааныг нь таах арга байхгүй.
+   *
+   * ⚠ Токен нь `pages_manage_metadata` ба `pages_show_list`
+   * эрхтэй байх ёстой, эс бөгөөс энэ дуудлага 200 биш алдаа өгнө.
+   */
+  async subscribedApps(
+    pageId: string,
+  ): Promise<{ id: string; name?: string; subscribed_fields?: string[] }[]> {
+    const r = await this.call<{
+      data?: { id: string; name?: string; subscribed_fields?: string[] }[];
+    }>(`/${pageId}/subscribed_apps?fields=id,name,subscribed_fields`);
+    return r.data ?? [];
+  }
+
+  /**
+   * Хуудсыг аппад захиалах.
+   *
+   * ⚠ `message_echoes`-гүй бол УТСАН дээрх Messenger-ээс бичсэн хариу
+   * WinFit-д харагдахгүй: ажилтан аль хэдийн хариулсан яриаг дахин
+   * хариулна.
+   *
+   * Идемпотент — дахин дуудахад давхар захиалга үүсэхгүй, зөвхөн
+   * талбарын жагсаалт орлогдоно.
+   */
+  async subscribeApp(
+    pageId: string,
+    fields: readonly string[],
+  ): Promise<{ success: boolean }> {
+    return this.call<{ success: boolean }>(
+      `/${pageId}/subscribed_apps?subscribed_fields=${fields.join(',')}`,
+      { method: 'POST' },
+    );
+  }
+
+  /**
+   * Токен хэзээ дуусахыг УРЬДЧИЛАН мэдэх.
+   *
+   * ⚠ `access_token` нь АППЫН токен байх ёстой («<app_id>|<app_secret>»)
+   * — өөрийгөө шалгуулах боломжгүй. Тиймээс `appId` өгөөгүй бол
+   * дуудагч нь энэ алхмыг алгасана.
+   *
+   * `expires_at = 0` бол ХЭЗЭЭ Ч дуусахгүй — Page token-ыг зөв замаар
+   * (урт хугацааны user token → `/me/accounts`) авсан бол ийм байна.
+   */
+  async debugToken(
+    input: string,
+    appAccessToken: string,
+  ): Promise<{
+    is_valid?: boolean;
+    expires_at?: number;
+    data_access_expires_at?: number;
+    scopes?: string[];
+    type?: string;
+  }> {
+    const r = await this.call<{ data?: Record<string, unknown> }>(
+      `/debug_token?input_token=${encodeURIComponent(input)}`,
+      { token: appAccessToken },
+    );
+    return (r.data ?? {}) as {
+      is_valid?: boolean;
+      expires_at?: number;
+      data_access_expires_at?: number;
+      scopes?: string[];
+      type?: string;
+    };
   }
 
   /**
