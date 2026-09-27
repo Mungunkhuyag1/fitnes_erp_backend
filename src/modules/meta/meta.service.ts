@@ -491,6 +491,31 @@ export class MetaService {
     }
   }
 
+  /**
+   * Нэг хүний ЯРИАГ БҮРЭН УСТГАХ.
+   *
+   * ★ ЯАГААД ХЭРЭГТЭЙ ВЭ
+   *
+   * Meta-гийн App Review нь өгөгдөл устгах ЗАМ шаарддаг. Мөн хүн
+   * «миний мэдээллийг устгаач» гэж хүсэх эрхтэй. Товчгүй бол тэр
+   * хүсэлтийг биелүүлэх арга байхгүй — амлаж болохгүй зүйлийг
+   * нууцлалын бодлогод бичих нь илүү муу.
+   *
+   * ⚠ БУЦААХ БОЛОМЖГҮЙ. Мессежүүд `ON DELETE CASCADE`-ээр хамт
+   * устана. Meta тал дээрх яриа ХЭВЭЭР үлдэнэ — бид зөвхөн өөрсдийн
+   * хуулбарыг устгана, тэр нь тэдний хүсэж буй зүйл мөн.
+   *
+   * ⚠ Гишүүний бүртгэл (`members`) ХӨНДӨГДӨХГҮЙ. Яриа нь тусдаа
+   * зүйл: хүн чатаа устгуулах хүсэлтээр гишүүнчлэлээ алдах ёсгүй.
+   */
+  async deleteConversation(id: string): Promise<{ ok: true; psid: string }> {
+    const c = await this.convos.findOne({ where: { id } });
+    if (!c) throw new NotFoundException('Яриа олдсонгүй');
+    await this.convos.delete(id);
+    this.log.warn(`Messenger яриа устгагдлаа: ${c.name ?? c.psid}`);
+    return { ok: true as const, psid: c.psid };
+  }
+
   async disconnect(): Promise<{ ok: true }> {
     await this.pages.update({ active: true }, { active: false });
     this.log.warn('Facebook хуудасны холболт салгагдлаа');

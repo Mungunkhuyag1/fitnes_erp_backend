@@ -155,6 +155,40 @@ export class MetaController {
    * ⚠ Messenger утасны дугаар өгдөггүй тул автоматаар таних арга
    * байхгүй — ажилтан нэг удаа гараар холбоно.
    */
+  /**
+   * ⚠ ADMIN бөгөөд БУЦААХГҮЙ.
+   *
+   * «Миний мэдээллийг устгаач» гэсэн хүсэлтийг биелүүлэх зам —
+   * Meta-гийн App Review үүнийг шаарддаг (winfit.mn/data-deletion).
+   * Ресепшнд нээлттэй байвал андуурч дарахад ярианы түүх алдагдана.
+   */
+  @Roles(Role.ADMIN)
+  @Delete('conversations/:id')
+  @ApiOperation({
+    summary: 'Яриаг бүрэн устгах — өгөгдөл устгуулах хүсэлтээр',
+    description:
+      'Мессежүүд хамт устана. Гишүүний бүртгэл ХӨНДӨГДӨХГҮЙ. ' +
+      'Meta тал дээрх яриа хэвээр үлдэнэ.',
+  })
+  async deleteConversation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const r = await this.meta.deleteConversation(id);
+    /*
+     * ⚠ Аудитыг УСТГАСНЫ ДАРАА бичнэ, өмнө нь биш: устгал унасан
+     * тохиолдолд «устгав» гэсэн худал бичилт үлдэх ёсгүй.
+     */
+    await this.audit.record({
+      staffUserId: user.id,
+      action: 'meta.conversation.delete',
+      entity: 'meta_conversation',
+      entityId: id,
+      after: { psid: r.psid },
+    });
+    return r;
+  }
+
   @Patch('conversations/:id/member')
   @ApiOperation({ summary: 'Яриаг гишүүнтэй холбох / салгах' })
   async link(
