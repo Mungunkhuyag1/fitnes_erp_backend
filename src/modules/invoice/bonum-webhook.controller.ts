@@ -67,19 +67,19 @@ export class BonumWebhookController {
       return Array.isArray(v) ? v[0] : v;
     };
 
-    // ── Webhook secret ── түр унтраав: checksum-аар баталгаажуулна.
-    // const secret =
-    //   header('x-webhook-secret') ??
-    //   header('bonum_webhook_secret') ??
-    //   header('bonum-webhook-secret');
-    // if (!this.bonum.verifyWebhookSecret(secret)) {
-    //   this.log.warn('Bonum webhook: secret буруу/дутуу');
-    //   throw new UnauthorizedException('webhook secret буруу');
-    // }
+    // ── Webhook secret ──
+    const secret =
+      header('x-webhook-secret') ??
+      header('bonum_webhook_secret') ??
+      header('bonum-webhook-secret');
+    if (!this.bonum.verifyWebhookSecret(secret)) {
+      this.log.warn('Bonum webhook: secret буруу/дутуу');
+      throw new UnauthorizedException('webhook secret буруу');
+    }
 
-    // ── Checksum ── ганц баталгаажуулалт тул ХАТУУ: түлхүүр эсвэл header
-    // дутуу бол татгалзана. Эс бөгөөс хэн ч «төлөгдсөн» webhook хуурамчаар
-    // илгээж эрх сунгуулж чадна.
+    // ── Checksum ── ХАТУУ: түлхүүр эсвэл header дутуу бол татгалзана.
+    // Эс бөгөөс хэн ч «төлөгдсөн» webhook хуурамчаар илгээж эрх сунгуулж
+    // чадна.
     const checksumKey = this.config.get<string>('bonum.checksumKey');
     if (!checksumKey) {
       this.log.error('Bonum webhook: BONUM_CHECKSUM_KEY тохируулаагүй');

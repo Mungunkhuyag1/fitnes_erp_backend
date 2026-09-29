@@ -281,7 +281,10 @@ export class BonumService {
   verifyWebhookSecret(secret: string | undefined): boolean {
     const expected = this.config.get<string>('bonum.webhookSecret');
     if (!expected) return true;
-    return !!secret && secret === expected;
+    if (!secret) return false;
+    const a = Buffer.from(secret.trim());
+    const b = Buffer.from(expected);
+    return a.length === b.length && timingSafeEqual(a, b);
   }
 
   /**
