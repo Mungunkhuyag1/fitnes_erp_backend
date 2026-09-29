@@ -128,6 +128,10 @@ export class InvoiceService {
     const pkg = await this.packages.findOne({ where: { id: dto.packageId } });
     if (!pkg) throw new NotFoundException('Багц олдсонгүй');
     if (!pkg.active) throw new BadRequestException('Багц идэвхгүй байна');
+    // ⚠ «Анх удаа» багцыг нэхэмжлэх үүсгэхээс ӨМНӨ шалгана. Урьд нь зөвхөн
+    // эрх сунгах үед (мөнгө орсны ДАРАА) шалгадаг байсан тул хуучин гишүүн
+    // төлчихөөд эрхгүй үлдэж, мөнгийг гараар буцаах шаардлага гардаг байв.
+    await this.memberships.assertFirstTime(pkg, member.id);
 
     // ── Нэг гишүүнд нэг зэрэг НЭГ л pending нэхэмжлэх ──
     const existing = await this.repo.findOne({
@@ -163,6 +167,7 @@ export class InvoiceService {
       if (partner.status === MemberStatus.CANCELLED) {
         throw new BadRequestException('Хамтрагч цуцлагдсан байна');
       }
+      await this.memberships.assertFirstTime(pkg, partner.id);
     } else if (dto.partnerMemberId) {
       throw new BadRequestException('Энэ багц нэг хүний эрх — хамтрагч сонгох боломжгүй');
     }
@@ -363,6 +368,11 @@ export class InvoiceService {
         paidAt: Date | null;
       }>();
     return rows.map((r) => ({ ...r, amount: Number(r.amount) }));
+  }
+
+  /** Pay хуудсанд «анх удаа» багцыг харуулах эсэхийг шийдэхэд. */
+  isFirstTimeMember(memberId: string): Promise<boolean> {
+    return this.memberships.isFirstTime(memberId);
   }
 
   async markPaid(

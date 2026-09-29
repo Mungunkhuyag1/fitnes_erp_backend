@@ -69,11 +69,17 @@ export class PublicService {
    * `createInvoice()` доторх шалгалт — жагсаалтад итгэвэл хэн ч
    * `packageId`-г гараар илгээж хосын багц худалдаж авна.
    */
-  async listPackages() {
-    const rows = await this.packages.find({
+  /**
+   * @param opts.firstTime гишүүн тодорхой үед: `false` бол «анх удаа»
+   *   багцыг жагсаалтаас хасна. Гишүүнгүй (нүүр хуудас) үед бүгдийг.
+   */
+  async listPackages(opts: { firstTime?: boolean } = {}) {
+    const all = await this.packages.find({
       where: { active: true },
       order: { sortOrder: 'ASC', price: 'ASC' },
     });
+    const rows =
+      opts.firstTime === false ? all.filter((p) => !p.firstTimeOnly) : all;
     // ⚠ Үнийг СЕРВЕР тооцоолно. Урамшууллыг зөвхөн дэлгэц дээр зурвал
     // жинхэнэ үнэ нь өөр байж, хэрэглэгч гайхна.
     //
@@ -148,7 +154,12 @@ export class PublicService {
     if (existing) {
       return existing.status === MemberStatus.CANCELLED
         ? { found: false as const }
-        : { found: true as const, maskedName: maskName(existing.name), created: false };
+        : {
+            found: true as const,
+            maskedName: maskName(existing.name),
+            firstTime: await this.invoices.isFirstTimeMember(existing.id),
+            created: false,
+          };
     }
 
     try {
@@ -160,6 +171,7 @@ export class PublicService {
       return {
         found: true as const,
         maskedName: maskName(created.name),
+        firstTime: true,
         created: true,
       };
     } catch (e) {
@@ -171,6 +183,7 @@ export class PublicService {
           return {
             found: true as const,
             maskedName: maskName(row.name),
+            firstTime: await this.invoices.isFirstTimeMember(row.id),
             created: false,
           };
         }
@@ -193,7 +206,12 @@ export class PublicService {
       return { found: false };
     }
     // ⚠ ЗӨВХӨН далдалсан нэр. Хугацаа, ирц, түүх БАЙХГҮЙ.
-    return { found: true, maskedName: maskName(member.name) };
+    // `firstTime` — pay хуудас «анх удаа» багцыг харуулах эсэхийг шийднэ.
+    return {
+      found: true,
+      maskedName: maskName(member.name),
+      firstTime: await this.invoices.isFirstTimeMember(member.id),
+    };
   }
 
   // ── 2-р түвшин ──
@@ -204,7 +222,9 @@ export class PublicService {
       throw new NotFoundException('Холбоос хүчингүй байна');
     }
     const pending = await this.invoices.pendingFor(member.id);
-    const { gymName, packages } = await this.listPackages();
+    const { gymName, packages } = await this.listPackages({
+      firstTime: await this.invoices.isFirstTimeMember(member.id),
+    });
     return {
       gymName,
       name: member.name,

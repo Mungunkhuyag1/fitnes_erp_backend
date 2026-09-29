@@ -754,16 +754,21 @@ export class MembershipService {
    * ⚠ Буцаагдсан (`reversed_at`) гишүүнчлэлийг тоолохгүй: алдаатай
    * бичилтийг засварласан хүн «анх удаа»-гаа алдах ёсгүй.
    */
-  private async assertFirstTime(pkg: Package, memberId: string): Promise<void> {
+  async assertFirstTime(pkg: Package, memberId: string): Promise<void> {
     if (!pkg.firstTimeOnly) return;
-    const prior = await this.repo.count({
-      where: { memberId, reversedAt: IsNull() },
-    });
-    if (prior > 0) {
+    if (!(await this.isFirstTime(memberId))) {
       throw new BadRequestException(
         `«${pkg.name}» нь зөвхөн анх удаа эрх авч буй гишүүнд. ` +
           'Энэ гишүүн өмнө нь эрх авсан байна.',
       );
     }
+  }
+
+  /** Гишүүн өмнө нь (буцаагдаагүй) эрх аваагүй бол `true`. */
+  async isFirstTime(memberId: string): Promise<boolean> {
+    const prior = await this.repo.count({
+      where: { memberId, reversedAt: IsNull() },
+    });
+    return prior === 0;
   }
 }
