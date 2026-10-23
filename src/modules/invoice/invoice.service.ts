@@ -686,11 +686,13 @@ export class InvoiceService {
     /** Эрх нээхийн өмнө ресепшн дээр баримт шалгуулах ёстой эсэх. */
     needsApproval: boolean;
     approvedAt: Date | null;
+    /** Царайгаа терминалд бүртгүүлээгүй — /pay/return ресепшнд хандахыг сануулна. */
+    faceEnrolled: boolean;
   }> {
     const row = await this.find(id);
     const member = await this.members.findOne({
       where: { id: row.memberId },
-      select: { id: true, name: true, accessEndsAt: true },
+      select: { id: true, name: true, accessEndsAt: true, faceEnrolled: true },
     });
 
     return {
@@ -709,6 +711,7 @@ export class InvoiceService {
       // таамаглашгүй UUID хэдий ч бүтэн нэр буцаах нь `/pay`-ийн 1-р
       // түвшний дүрэмтэй зөрчилдөнө (docs/01 §6.6).
       memberName: member ? maskName(member.name) : null,
+      faceEnrolled: member?.faceEnrolled ?? false,
       // Зөвхөн ТӨЛӨГДСӨН үед — төлөгдөөгүй нэхэмжлэх дээр «хэзээ хүртэл»
       // гэдэг нь одоогийн эрхийг илчлэхээс өөр утгагүй.
       accessEndsAt:

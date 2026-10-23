@@ -24,6 +24,7 @@ import { Package } from '../package/package.entity';
 import { PromotionChannel } from '../promotion/promotion.entity';
 import { PromotionService } from '../promotion/promotion.service';
 import { SettingsService } from '../settings/settings.service';
+import { PublicRegisterDto } from './dto/public.dto';
 
 /**
  * Нэвтрэлтгүй `/pay` хуудасны логик.
@@ -140,7 +141,7 @@ export class PublicService {
    * дээр үүсэх тул царайгаа бүртгүүлж чадна ч ХААЛГА НЭЭГДЭХГҮЙ.
    * Төлбөр хийгдэж гишүүнчлэл үүсэх хүртэл тэр хэвээр.
    */
-  async register(input: { name: string; phone: string }) {
+  async register(input: PublicRegisterDto) {
     if (!isValidPhone(input.phone)) {
       throw new BadRequestException('Утасны дугаар 8 оронтой байх ёстой');
     }
@@ -163,9 +164,16 @@ export class PublicService {
     }
 
     try {
+      // ⚠ Бүртгэлтэй дугаарт (дээрх `existing`) эдгээрийг ХЭЗЭЭ Ч
+      // бичихгүй — хэн ч дугаар оруулаад бусдын мэдээллийг дарж болно.
       const created = await this.memberService.create({
         name: input.name,
         phone,
+        gender: input.gender ?? null,
+        birthDate: input.birthDate ?? null,
+        email: input.email ?? null,
+        emergencyName: input.emergencyName ?? null,
+        emergencyPhone: input.emergencyPhone ?? null,
       });
       this.log.log(`Онлайн бүртгэл: №${created.memberNo}`);
       return {
