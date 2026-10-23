@@ -605,32 +605,49 @@ export class MetaService {
   }
 
   /**
-   * Яриаг олох эсвэл үүсгэх. Шинэ бол профайлыг татна.
+   * Яриаг олох эсвэл үүсгэх. Нэргүй бол профайлыг татна.
    *
    * ⚠ Профайл татагдахгүй байх нь ХЭВИЙН (нууцлал, батлагдаагүй апп) —
-   * яриаг тэр шалтгаанаар алдаж болохгүй тул чимээгүй үргэлжилнэ.
+   * яриаг тэр шалтгаанаар алдаж болохгүй тул үргэлжилнэ.
+   *
+   * ⚠ ЗӨВХӨН ШИНЭ ЯРИАНД БИШ — нэр хоосон бол мессеж бүрд дахин оролдоно.
+   * Эс бөгөөс App Review-ээс (Business Asset User Profile Access) ӨМНӨ
+   * эхэлсэн яриа батлагдсаны дараа ч «Нэргүй» хэвээр үлдэнэ.
    */
   private async upsertConversation(
     pageId: string,
     psid: string,
   ): Promise<MetaConversation> {
     const found = await this.convos.findOne({ where: { pageId, psid } });
-    if (found) return found;
+    if (found?.name) return found;
 
-    const row = this.convos.create({ pageId, psid, unread: 0 });
+    const row = found ?? this.convos.create({ pageId, psid, unread: 0 });
     const p = await this.page();
     if (p?.tokenEnc) {
+      const client = await this.client(p);
       try {
-        const prof = await (await this.client(p)).profile(psid);
-        row.name = prof.name ?? null;
+        const prof = await client.profile(psid);
+        row.name = prof.name || null;
         row.pictureUrl = prof.picture ?? null;
       } catch (e) {
-        this.log.debug(
+        // `warn` — Railway-ийн логт харагдах ёстой: «Нэргүй» гарахад
+        // шалтгааныг (эрх дутуу уу, нууцлал уу) эндээс л ялгана.
+        this.log.warn(
           `Профайл татагдсангүй (${psid}): ${(e as Error).message}`,
         );
       }
+      // Нөөц: Advanced access-гүй үед профайл унадаг (client.participantName).
+      if (!row.name) {
+        try {
+          row.name = (await client.participantName(pageId, psid)) || null;
+        } catch (e) {
+          this.log.warn(
+            `Ярианы оролцогчоос нэр олдсонгүй (${psid}): ${(e as Error).message}`,
+          );
+        }
+      }
     }
-    return this.convos.save(row);
+    return found && !row.name ? found : this.convos.save(row);
   }
 
   // ══════════════════════════════════════════════════════════════

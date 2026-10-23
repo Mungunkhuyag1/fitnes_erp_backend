@@ -219,6 +219,30 @@ export class MetaClient {
   }
 
   /**
+   * Нэрийг Conversations API-аас — `profile()`-ийн НӨӨЦ.
+   *
+   * ★ ЯАГААД ХЭРЭГТЭЙ ВЭ
+   *
+   * `/{psid}` профайл нь «Business Asset User Profile Access»-ийн
+   * Advanced access шаарддаг → App Review → Business Verification.
+   * Албан ёсны бүртгэлгүй заалд тэр зам ХААЛТТАЙ (docs/17 §0).
+   * Ярианы `participants` нь `pages_messaging`-аар л нэрийг өгдөг.
+   *
+   * ⚠ Зөвхөн НЭР — зураг энд байхгүй.
+   */
+  async participantName(
+    pageId: string,
+    psid: string,
+  ): Promise<string | undefined> {
+    const r = await this.call<{
+      data?: { participants?: { data?: { id: string; name?: string }[] } }[];
+    }>(
+      `/${pageId}/conversations?platform=messenger&user_id=${encodeURIComponent(psid)}&fields=participants`,
+    );
+    return r.data?.[0]?.participants?.data?.find((x) => x.id === psid)?.name;
+  }
+
+  /**
    * Мессеж илгээх.
    *
    * ★ ЦОНХНЫ ДҮРЭМ (`docs/17` §3)
