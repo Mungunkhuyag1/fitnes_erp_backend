@@ -713,11 +713,17 @@ export class MetaService {
   }> {
     const c = await this.convos.findOne({ where: { id } });
     if (!c) throw new NotFoundException('Яриа олдсонгүй');
-    const messages = await this.messages.find({
-      where: { conversationId: id },
-      order: { sentAt: 'ASC' },
-      take: 200,
-    });
+    /*
+     * ⚠ СҮҮЛИЙН 200 — `DESC`-ээр аваад эргүүлнэ. `ASC` + `take` нь ХАМГИЙН
+     * ХУУЧИН 200-г өгч, урт ярианд шинэ мессеж огт харагдахгүй болдог.
+     */
+    const messages = (
+      await this.messages.find({
+        where: { conversationId: id },
+        order: { sentAt: 'DESC' },
+        take: 200,
+      })
+    ).reverse();
     const members = await this.memberMap([c.memberId]);
     return {
       conversation: {
