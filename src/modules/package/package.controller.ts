@@ -57,4 +57,18 @@ export class PackageController {
   deactivate(@Param('id', ParseUUIDPipe) id: string) {
     return this.packages.deactivate(id);
   }
+
+  /*
+   * ⚠ Тусдаа зам: `DELETE :id` нь хуучин dashboard-д «идэвхгүй болгох»
+   * гэсэн утгатай. Түүнийг өөрчилбөл deploy-ийн завсарт идэвхгүй болгох
+   * товч багцыг УСТГАНА.
+   */
+  @Roles(Role.MANAGER)
+  @Delete(':id/permanent')
+  @ApiOperation({
+    summary: 'Багц устгах — зарагдаагүй бол бүрмөсөн, зарагдсан бол нууна',
+  })
+  remove(@Param('id', ParseUUIDPipe) id: string) {
+    return this.packages.remove(id);
+  }
 }

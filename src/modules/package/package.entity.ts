@@ -90,6 +90,15 @@ export class Package {
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder: number;
 
+  /**
+   * Устгагдсан (зарагдсан тул бүрмөсөн устгах боломжгүй) багц.
+   *
+   * ⚠ `@DeleteDateColumn` БИШ — тэр нь бүх `find`-аас автоматаар хасдаг.
+   * Тайлан, төлөгдөөгүй нэхэмжлэх устгасан багцыг ID-аар нь олох ёстой.
+   */
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

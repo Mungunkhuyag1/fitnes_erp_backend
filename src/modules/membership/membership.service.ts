@@ -125,7 +125,11 @@ export class MembershipService {
     if (input.packageId) {
       const pkg = await this.packages.findOne({ where: { id: input.packageId } });
       if (!pkg) throw new NotFoundException('Багц олдсонгүй');
-      if (!pkg.active) throw new BadRequestException('Багц идэвхгүй байна');
+      // ⚠ Төлөгдсөн нэхэмжлэхийг ҮРГЭЛЖ биелүүлнэ — нэхэмжлэх үүсгэсний
+      // дараа багц идэвхгүй/устгагдсан ч мөнгө орсон хүн эрхээ авна.
+      if (!pkg.active && !input.invoiceId) {
+        throw new BadRequestException('Багц идэвхгүй байна');
+      }
       await this.assertFirstTime(pkg, input.memberId);
       /*
        * ⚠ Дуудагч хоног дамжуулсан бол ТЭР ялна. Онлайн нэхэмжлэх

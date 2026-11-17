@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import {
   AUDIENCE_LABEL,
   PackageAudience,
@@ -38,7 +38,9 @@ export class PackageService {
   ) {}
 
   async list(q: ListPackagesDto): Promise<PageResult<PackageView>> {
-    const qb = this.repo.createQueryBuilder('p');
+    const qb = this.repo
+      .createQueryBuilder('p')
+      .where('p.deleted_at IS NULL');
     if (q.active !== undefined) {
       qb.andWhere('p.active = :active', { active: q.active });
     }
@@ -77,6 +79,7 @@ export class PackageService {
 
   async update(id: string, dto: UpdatePackageDto): Promise<PackageView> {
     const p = await this.find(id);
+    if (p.deletedAt) throw new NotFoundException('Багц устгагдсан');
     if (dto.name !== undefined && dto.name.trim() !== p.name) {
       await this.assertNameFree(dto.name, id);
       p.name = dto.name.trim();
@@ -103,6 +106,45 @@ export class PackageService {
     return this.view(await this.repo.save(p));
   }
 
+  /**
+   * ★ УСТГАХ.
+   *
+   *  • Хэзээ ч зарагдаагүй, нэхэмжлэхгүй → БҮРМӨСӨН устгана (урамшууллын
+   *    `package_ids`-аас ч хасна).
+   *  • Зарагдсан эсвэл нэхэмжлэхтэй → `deleted_at` тавьж нууна. Тайлан
+   *    нэрийг нь `LEFT JOIN`-оор авдаг тул бүрмөсөн устгавал борлуулалт нь
+   *    «Гараар» мөрөнд нийлнэ; төлөгдөөгүй нэхэмжлэх ч багцаа олохгүй.
+   */
+  async remove(id: string): Promise<{ id: string; mode: 'deleted' | 'archived' }> {
+    return this.repo.manager.transaction(async (m) => {
+      const p = await m.getRepository(Package).findOne({
+        where: { id, deletedAt: IsNull() },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!p) throw new NotFoundException('Багц олдсонгүй');
+
+      const [{ used }] = await m.query<{ used: boolean }[]>(
+        `SELECT EXISTS (SELECT 1 FROM memberships WHERE package_id = $1)
+             OR EXISTS (SELECT 1 FROM invoices WHERE package_id = $1) AS used`,
+        [id],
+      );
+      if (used) {
+        p.deletedAt = new Date();
+        p.active = false;
+        p.online = false;
+        await m.save(p);
+        return { id, mode: 'archived' as const };
+      }
+      await m.query(
+        `UPDATE promotions SET package_ids = array_remove(package_ids, $1::uuid)
+          WHERE $1::uuid = ANY(package_ids)`,
+        [id],
+      );
+      await m.delete(Package, { id });
+      return { id, mode: 'deleted' as const };
+    });
+  }
+
   /** Дотоод хэрэглээ — сунгалт тооцоход (B5). */
   async findActiveOrFail(id: string): Promise<Package> {
     const p = await this.find(id);
@@ -117,7 +159,10 @@ export class PackageService {
   }
 
   private async assertNameFree(name: string, exceptId?: string): Promise<void> {
-    const existing = await this.repo.findOne({ where: { name: name.trim() } });
+    // Устгагдсан багцын нэрийг дахин ашиглаж болно.
+    const existing = await this.repo.findOne({
+      where: { name: name.trim(), deletedAt: IsNull() },
+    });
     if (existing && existing.id !== exceptId) {
       throw new ConflictException('Ийм нэртэй багц бүртгэлтэй байна');
     }
