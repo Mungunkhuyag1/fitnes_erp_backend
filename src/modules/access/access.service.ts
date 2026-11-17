@@ -12,6 +12,7 @@ import { DEVICE_GATEWAY, type DeviceGateway } from '../device/device.gateway';
 import { terminalPath } from '../device/isapi/terminal-path';
 import { mapAcsEvent, type RawAcsEvent } from './acs-event.mapper';
 import { AccessEvent, AccessReason } from './access-event.entity';
+import { EntryChargeService } from './entry-charge.service';
 import type { ListAccessEventsDto } from './dto/access.dto';
 
 /** Нэг эвентийн зургийг дахин асуухын өмнөх ЗАВСАР. */
@@ -68,6 +69,7 @@ export class AccessService {
     private readonly ds: DataSource,
     // Дэлгэрэнгүй нээхэд зураг нь дутуу бол ТЭР ДОР НЬ терминалаас асууна.
     @Inject(DEVICE_GATEWAY) private readonly device: DeviceGateway,
+    private readonly entries: EntryChargeService,
   ) {}
 
   /**
@@ -162,6 +164,26 @@ export class AccessService {
     if (inserted && granted && member) {
       if (!member.lastVisitAt || member.lastVisitAt < input.eventAt) {
         await this.members.update(member.id, { lastVisitAt: input.eventAt });
+      }
+
+      /*
+       * ★ ОРОЛТЫН БАГЦ — ЗӨВХӨН ШИНЭ мөр дээр.
+       *
+       * `inserted` нь давхардлыг (push + татагч) аль хэдийн шүүсэн тул
+       * нэг уншуулалт хоёр удаа хасагдахгүй.
+       *
+       * ⚠ Алдаа нь ирцийн бүртгэлийг ЗОГСООХГҮЙ — эвент аль хэдийн
+       * бичигдсэн. Гэхдээ чимээгүй өнгөрөхгүйн тулд алдаа гэж бичнэ.
+       */
+      const eventId = res.identifiers?.[0]?.id as string | undefined;
+      if (eventId) {
+        try {
+          await this.entries.charge(String(eventId), member.id, input.eventAt);
+        } catch (e) {
+          this.log.error(
+            `Оролт хасаж чадсангүй (№${member.memberNo}, эвент ${eventId}): ${(e as Error).message}`,
+          );
+        }
       }
     }
     return inserted;
@@ -501,6 +523,7 @@ export class AccessService {
       reason: e.reason,
       reasonLabel: REASON_LABEL[e.reason] ?? e.reason,
       verifyMode: e.verifyMode,
+      entryCharged: e.entryMembershipId !== null,
       picturePath: e.picturePath,
       memberNo: e.employeeNo,
       deviceId: e.deviceId,
@@ -556,6 +579,8 @@ export class AccessService {
       reason: r.reason,
       reasonLabel: REASON_LABEL[r.reason] ?? r.reason,
       verifyMode: r.verifyMode,
+      /** Энэ уншуулалтад оролтын багцаас 1 оролт хасагдсан уу. */
+      entryCharged: r.entryMembershipId !== null,
       // ⚠ ЗАМ — дэлгэц нь `/devices/image?path=…`-аар татна. Бүтэн
       // хаяг өгвөл браузер терминал руу шууд хандах ба нэвтрэлт,
       // сүлжээ хоёулаа зөрчилдөнө.

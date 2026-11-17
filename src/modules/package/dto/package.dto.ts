@@ -10,6 +10,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { PackageAudience } from '../../../common/enums/audience.enum';
 import { PageQueryDto } from '../../../common/dto/pagination.dto';
@@ -27,6 +28,19 @@ export class CreatePackageDto {
   @Min(1)
   @Max(3650)
   days: number;
+
+  @ApiPropertyOptional({
+    example: 12,
+    nullable: true,
+    description: 'Оролтын тоо. null/байхгүй = хоногийн (хязгааргүй) багц',
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === null || value === '' ? null : Number(value)))
+  @ValidateIf((_, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  entries?: number | null;
 
   @ApiProperty({ example: 90000, description: 'Төгрөгөөр бүхэл тоо' })
   @Type(() => Number)
@@ -86,6 +100,19 @@ export class UpdatePackageDto {
   @Min(1)
   @Max(3650)
   days?: number;
+
+  @ApiPropertyOptional({
+    example: 12,
+    nullable: true,
+    description: 'Оролтын тоо. null/байхгүй = хоногийн (хязгааргүй) багц',
+  })
+  @IsOptional()
+  @Transform(({ value }) => (value === null || value === '' ? null : Number(value)))
+  @ValidateIf((_, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  entries?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()

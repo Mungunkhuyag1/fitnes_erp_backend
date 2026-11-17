@@ -4,6 +4,7 @@ import { Transform } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -102,4 +103,23 @@ export class UpdateSettingsDto {
   @MaxLength(64)
   loopy_gift_program_id?: string | null;
 
+  @ApiPropertyOptional({
+    enum: ['every', 'window', 'day'],
+    description:
+      'Оролтын багц: every = уншуулалт бүр, window = цонхны дотор давтан ' +
+      'уншуулбал үнэгүй, day = өдөрт 1 оролт',
+  })
+  @IsOptional()
+  @IsIn(['every', 'window', 'day'])
+  entry_charge_mode?: 'every' | 'window' | 'day';
+
+  @ApiPropertyOptional({
+    example: 180,
+    description: '`window` горимын давтан уншуулах цонх (минут)',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  entry_rescan_minutes?: number;
 }

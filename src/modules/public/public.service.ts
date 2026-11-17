@@ -1,3 +1,4 @@
+import { loadEntryStatus } from '../membership/entry-status';
 import {
   BadRequestException,
   ConflictException,
@@ -99,6 +100,8 @@ export class PublicService {
         id: p.id,
         name: p.name,
         days: q.days,
+        /** Оролтын тоо — `null` = хоногийн (хязгааргүй) багц. */
+        entries: p.entries ?? null,
         price: q.price,
         audience: p.audience,
         audienceLabel: AUDIENCE_LABEL[p.audience] ?? p.audience,
@@ -243,6 +246,8 @@ export class PublicService {
       daysLeft: member.accessEndsAt
         ? daysBetween(new Date(), member.accessEndsAt, this.tz)
         : null,
+      /** Оролтын багцын үлдэгдэл — хоногийн эрхтэй бол `null`. */
+      entries: await loadEntryStatus(this.members.manager, member.id, this.tz),
       packages,
       pendingInvoice: pending,
     };

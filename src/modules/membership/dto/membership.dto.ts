@@ -25,16 +25,36 @@ export class ExtendMembershipDto {
   packageId?: string;
 
   @ApiPropertyOptional({
-    description: 'Эсвэл шууд хоногоор (багцгүй). `reason` заавал болно.',
-    minimum: 1,
+    description:
+      'Эсвэл шууд хоногоор (багцгүй). `reason` заавал болно. ' +
+      '0 нь зөвхөн одоогийн оролтын багцад оролт нэмэхэд.',
+    minimum: 0,
     maximum: 3650,
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(1)
+  @Min(0)
   @Max(3650)
   days?: number;
+
+  /**
+   * Багцгүй олголтын ОРОЛТЫН тоо.
+   *
+   *  • Гишүүн одоо оролтын багцтай → тэр багцад нэмэгдэнэ (хоног нь мөн)
+   *  • Үгүй бол → `days` хоногийн хугацаатай шинэ оролтын эрх
+   */
+  @ApiPropertyOptional({
+    description: 'Оролтын эрх (багцгүй). Хоосон = хязгааргүй хоног.',
+    minimum: 1,
+    maximum: 1000,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  entries?: number;
 
   @ApiProperty({ example: 90000, description: 'Хүлээн авсан дүн (₮)' })
   @Type(() => Number)

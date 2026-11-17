@@ -15,7 +15,16 @@ import {
   MemberStatus,
 } from '../../common/enums/member-status.enum';
 import { Role } from '../../common/enums/role.enum';
-import { computeNewEndsAt, endOfLocalDay } from '../../common/utils/date.util';
+import {
+  addDays,
+  computeNewEndsAt,
+  endOfLocalDay,
+} from '../../common/utils/date.util';
+import {
+  replayLedger,
+  type EntryStatus,
+} from '../../common/utils/ledger.util';
+import { loadEntryStatus } from './entry-status';
 import { AuditService } from '../audit/audit.service';
 import { DEVICE_TOPICS, memberGroup } from '../device/device-sync.service';
 import {
@@ -39,6 +48,11 @@ export interface ExtendInput {
   memberId: string;
   packageId?: string | null;
   days?: number;
+  /**
+   * Багцгүй олголтын оролтын тоо (`null`/байхгүй = хязгааргүй хоног).
+   * Багцаар бол багцын `entries`-ийг авна.
+   */
+  entries?: number | null;
   amount: number;
   source: MembershipSource;
   /**
@@ -104,18 +118,32 @@ export class MembershipService {
       return existing;
     }
 
-    // ── Хэдэн хоног, ямар багц ──
+    // ── Хэдэн хоног, хэдэн оролт, ямар багц ──
     let days = input.days ?? 0;
+    let entries: number | null = input.entries ?? null;
     let packageName: string | null = null;
     if (input.packageId) {
       const pkg = await this.packages.findOne({ where: { id: input.packageId } });
       if (!pkg) throw new NotFoundException('Багц олдсонгүй');
       if (!pkg.active) throw new BadRequestException('Багц идэвхгүй байна');
       await this.assertFirstTime(pkg, input.memberId);
-      days = pkg.days;
+      /*
+       * ⚠ Дуудагч хоног дамжуулсан бол ТЭР ялна. Онлайн нэхэмжлэх
+       * урамшууллын нэмэлт хоногийг (`quote.days`) хуулбарлаж хадгалдаг —
+       * урьд нь энд багцын хоногоор дарж бичиж, төлсөн хүн амласан
+       * нэмэлт хоногоо АЛДДАГ байв. Ажилтны зам багцтай үед хоногийг
+       * дамжуулдаггүй (`extendByStaff`).
+       */
+      days = input.days && input.days > 0 ? input.days : pkg.days;
+      entries = pkg.entries ?? null;
       packageName = pkg.name;
     }
-    if (!days || days < 1) {
+    if (entries !== null && entries < 1) {
+      throw new BadRequestException('Оролтын тоо 1-ээс их байх ёстой');
+    }
+    // `days = 0` нь ЗӨВХӨН одоогийн оролтын багцад оролт нэмэхэд —
+    // доор (гүйлгээн дотор) дахин шалгана.
+    if (days < 0 || (days < 1 && entries === null)) {
       throw new BadRequestException('Багц эсвэл хоногийн тоог заана уу');
     }
 
@@ -144,19 +172,62 @@ export class MembershipService {
         accessEndsAt: member.accessEndsAt,
       };
 
-      // ★ Огноо тооцох ГАНЦ дүрэм — эрт төлсөн хоног алдагдахгүй.
-      const endsAt = computeNewEndsAt(member.accessEndsAt, days, now, this.tz);
-      const startsAt =
-        member.accessEndsAt && member.accessEndsAt > now
-          ? member.accessEndsAt
-          : now;
+      /*
+       * ★ ОРОЛТЫН БҮЛЭГТ НЭГДЭХ ҮҮ
+       *
+       * Багцгүй олголт (чөлөө, гараар хоног/оролт) нь гишүүн ОДОО оролтын
+       * багцтай бол шинэ хязгааргүй цонх нээхгүй — тэр бүлгийн хугацаа,
+       * оролтыг нэмэгдүүлнэ. Эс бөгөөс заалны чөлөөний 7 хоног оролтын
+       * гишүүнд «7 хоног хязгааргүй» болж хувирна.
+       *
+       * Багцаар худалдан авбал ҮРГЭЛЖ дараалалд орно (хуучин дүрэм) —
+       * одоогийн багц дууссаны дараа эхэлнэ, үлдсэн хоног алдагдахгүй.
+       */
+      const ledger = m.getRepository(Membership);
+      const tail = await this.openEntryTail(member.id, now, m);
+      const join = !input.packageId && !revive && tail !== null;
 
-      const saved = await m.getRepository(Membership).save(
-        m.getRepository(Membership).create({
+      let startsAt: Date;
+      let endsAt: Date;
+      if (join && tail) {
+        if (days < 1 && !(entries && entries > 0)) {
+          throw new BadRequestException('Хоног эсвэл оролтын тоог заана уу');
+        }
+        const head = tail.head;
+        // Оролт нэмэгдвэл хаагдсан бүлэг ДАХИН нээгдэнэ.
+        if (entries && entries > 0 && head.closedAt) head.closedAt = null;
+        const natural = endOfLocalDay(
+          addDays(tail.seg.start, tail.seg.days + days),
+          this.tz,
+        );
+        startsAt = tail.seg.start;
+        endsAt =
+          head.closedAt && head.closedAt < natural ? head.closedAt : natural;
+        head.endsAt = endsAt;
+        await ledger.save(head);
+      } else {
+        if (days < 1) {
+          throw new BadRequestException(
+            'Оролтын багцгүй гишүүнд зөвхөн оролт нэмэх боломжгүй — хоногийг заана уу',
+          );
+        }
+        // ★ Огноо тооцох ГАНЦ дүрэм — эрт төлсөн хоног алдагдахгүй.
+        endsAt = computeNewEndsAt(member.accessEndsAt, days, now, this.tz);
+        startsAt =
+          member.accessEndsAt && member.accessEndsAt > now
+            ? member.accessEndsAt
+            : now;
+      }
+
+      const saved = await ledger.save(
+        ledger.create({
           memberId: member.id,
           packageId: input.packageId ?? null,
           packageName,
           days,
+          // Нэгдэх мөр нь `0` — бүлгийн оролтод юу ч нэмэхгүй хоног.
+          entries: join ? (entries ?? 0) : entries,
+          joinsPrevious: join,
           amount: String(input.amount),
           source: input.source,
           // `undefined` = одоо төлсөн. `null` = авлага.
@@ -229,7 +300,14 @@ export class MembershipService {
             entity: 'member',
             entityId: member.id,
             before,
-            after: { status: member.status, accessEndsAt: endsAt, days, amount: input.amount },
+            after: {
+              status: member.status,
+              accessEndsAt: endsAt,
+              days,
+              entries,
+              joinsPrevious: join,
+              amount: input.amount,
+            },
             reason: input.reason ?? null,
             ip: input.ip ?? null,
           },
@@ -238,7 +316,10 @@ export class MembershipService {
       }
 
       this.log.log(
-        `Эрх сунгав: №${member.memberNo} ${member.name} +${days} хоног → ${endsAt.toISOString()} (${input.source})`,
+        `Эрх сунгав: №${member.memberNo} ${member.name} +${days} хоног` +
+          (entries !== null ? ` +${entries} оролт` : '') +
+          (join ? ' (оролтын бүлэгт нэгдэв)' : '') +
+          ` → ${endsAt.toISOString()} (${input.source})`,
       );
       return saved;
     });
@@ -263,8 +344,13 @@ export class MembershipService {
         'Онлайн төлбөрийг гараар бүртгэх боломжгүй — нэхэмжлэх үүсгэнэ үү',
       );
     }
-    if (!dto.packageId && !dto.days) {
-      throw new BadRequestException('Багц эсвэл хоногийн тоог заана уу');
+    if (!dto.packageId && !dto.days && !dto.entries) {
+      throw new BadRequestException('Багц, хоног эсвэл оролтын тоог заана уу');
+    }
+    if (dto.packageId && dto.entries) {
+      throw new BadRequestException(
+        'Багцаар сунгахад оролтын тоог багц өөрөө тодорхойлно',
+      );
     }
     // Багцгүй, дурын хоногоор сунгах нь тайлбаргүй байж болохгүй.
     if ((!dto.packageId || dto.method === MembershipSource.MANUAL) && !dto.reason?.trim()) {
@@ -340,7 +426,10 @@ export class MembershipService {
     return this.extend({
       memberId,
       packageId: dto.packageId,
-      days: dto.days,
+      // Багцаар бол хоногийг багц өөрөө шийднэ — ажилтан багцын үнээр
+      // дурын хоног олгож чадахгүй.
+      days: dto.packageId ? undefined : dto.days,
+      entries: dto.entries ?? null,
       amount: dto.amount,
       source: dto.method,
       // `undefined` = одоо төлсөн. `null` = авлага.
@@ -465,14 +554,10 @@ export class MembershipService {
       order: { createdAt: 'ASC' },
     });
 
-    let ends: Date | null = null;
-    for (const r of rows) {
-      const base = ends && ends > r.createdAt ? ends : r.createdAt;
-      ends = endOfLocalDay(
-        new Date(base.getTime() + r.days * 86_400_000),
-        this.tz,
-      );
-    }
+    // ★ Хоног ба оролтын ГАНЦ дүрэм — `ledger.util.ts`. Оролт нь дуусч
+    // хаагдсан бүлэг (`closedAt`) дараагийн мөрийг эрт эхлүүлнэ.
+    const segs = replayLedger(rows, this.tz);
+    const ends: Date | null = segs.length ? segs[segs.length - 1].end : null;
 
     const member = await m.getRepository(Member).findOne({ where: { id: memberId } });
     if (!member) return ends;
@@ -650,6 +735,10 @@ export class MembershipService {
         memberNo: memberMap.get(r.memberId)?.memberNo ?? null,
         packageName: r.packageName,
         days: r.days,
+        entries: r.entries,
+        entriesUsed: r.entriesUsed,
+        joinsPrevious: r.joinsPrevious,
+        closedAt: r.closedAt,
         amount: Number(r.amount),
         source: r.source,
         reason: r.reason,
@@ -667,6 +756,47 @@ export class MembershipService {
       total,
       q,
     );
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  //  Оролт
+  // ══════════════════════════════════════════════════════════════
+
+  /**
+   * Гишүүний ОДООГИЙН оролтын төлөв — хоногийн эрхтэй бол `null`.
+   *
+   * Гишүүний дэлгэц, `/pay` хуудас, Loopy карт гурвуулаа ЭНЭ функцийг
+   * дуудна — гурван газарт тусад нь тооцвол зөрнө.
+   */
+  async entryStatus(
+    memberId: string,
+    manager?: EntityManager,
+  ): Promise<EntryStatus | null> {
+    return loadEntryStatus(manager ?? this.ds.manager, memberId, this.tz);
+  }
+
+  private ledgerRows(memberId: string, m: EntityManager) {
+    return m.getRepository(Membership).find({
+      where: { memberId, reversedAt: IsNull() },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  /**
+   * Дэвтрийн СҮҮЛИЙН бүлэг нь хүчинтэй оролтын бүлэг бол түүнийг буцаана.
+   *
+   * ⚠ Сүүлийнх байх ёстой: оролтын багцын ДАРАА хоногийн багц аль
+   * хэдийн дараалалд байвал чөлөөний хоног тэр хоногийн багцын төгсгөлд
+   * (энгийн журмаар) нэмэгдэнэ.
+   */
+  private async openEntryTail(memberId: string, now: Date, m: EntityManager) {
+    const rows = await this.ledgerRows(memberId, m);
+    if (!rows.length) return null;
+    const segs = replayLedger(rows, this.tz, rows[0].startsAt);
+    const seg = segs[segs.length - 1];
+    if (seg.entries === null || seg.end <= now) return null;
+    const head = rows.find((r) => r.id === seg.headId)!;
+    return { seg, head };
   }
 
   // ── Дотоод ──

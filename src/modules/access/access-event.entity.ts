@@ -89,6 +89,17 @@ export class AccessEvent {
   @Column({ name: 'picture_path', type: 'varchar', length: 300, nullable: true })
   picturePath: string | null;
 
+  /**
+   * Энэ уншуулалтад ОРОЛТ хасагдсан бол — аль худалдан авалтаас (тэргүүн мөр).
+   *
+   * `null` = хасагдаагүй: хоногийн эрх, давтан уншуулалт, эсвэл татгалзсан.
+   *
+   * ⚠ Шийдвэрийг ЭНД ХАДГАЛНА — тохиргоо (цонх) хожим өөрчлөгдсөн ч
+   * түүх дахин тоологдохгүй.
+   */
+  @Column({ name: 'entry_membership_id', type: 'uuid', nullable: true })
+  entryMembershipId: string | null;
+
   @Column({ name: 'dedupe_key', type: 'varchar', length: 80 })
   dedupeKey: string;
 

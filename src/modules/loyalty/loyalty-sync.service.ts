@@ -1,3 +1,4 @@
+import { loadEntryStatus } from '../membership/entry-status';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -189,6 +190,16 @@ export class LoyaltySyncService implements OnModuleInit {
         key: 'winfitEnds',
         label: 'Эрх дуусах',
         value: fmtDate(m.accessEndsAt, this.tz),
+      });
+    }
+
+    // ── Оролтын багц — үлдсэн оролт ──
+    const entries = await loadEntryStatus(this.members.manager, m.id, this.tz);
+    if (entries) {
+      fields.push({
+        key: 'winfitEntries',
+        label: 'Үлдсэн оролт',
+        value: `${entries.left} / ${entries.total}`,
       });
     }
 

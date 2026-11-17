@@ -31,6 +31,7 @@
     "probe": "ts-node -r tsconfig-paths/register scripts/probe-device.ts",
     "stub:drift": "ts-node -r tsconfig-paths/register scripts/stub-drift.ts",
     "stub:reset": "ts-node -r tsconfig-paths/register scripts/stub-drift.ts --reset",
+    "seed:entries": "ts-node -r tsconfig-paths/register src/database/seeds/seed-entries.ts",
     "seed:packages": "ts-node -r tsconfig-paths/register src/database/seeds/seed-packages.ts",
     "seed:admin:prod": "node dist/src/database/seeds/seed-admin.js",
     "seed:packages:prod": "node dist/src/database/seeds/seed-packages.js",
@@ -41,7 +42,8 @@
     "check:upsert-preserve": "ts-node -r tsconfig-paths/register scripts/check-upsert-preserve.ts",
     "check:device-validity": "ts-node -r tsconfig-paths/register scripts/check-device-validity.ts",
     "check:yoga-schedule": "ts-node -r tsconfig-paths/register scripts/check-yoga-schedule.ts",
-    "check:schedule": "ts-node -r tsconfig-paths/register scripts/check-schedule.ts"
+    "check:schedule": "ts-node -r tsconfig-paths/register scripts/check-schedule.ts",
+    "check:entries": "ts-node -r tsconfig-paths/register scripts/check-entries.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

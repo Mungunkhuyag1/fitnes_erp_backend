@@ -1,3 +1,5 @@
+import type { EntryStatus } from '../../common/utils/ledger.util';
+import { loadEntryStatus } from '../membership/entry-status';
 import {
   BadRequestException,
   ConflictException,
@@ -158,6 +160,8 @@ export interface MemberDetail extends MemberRow {
   loopyCardSerial: string | null;
   /** Wallet-д нэмсэн төхөөрөмжийн тоо. `null` = хараахан шалгаагүй. */
   walletDevices: number | null;
+  /** Оролтын багцын үлдэгдэл — хоногийн эрхтэй бол `null`. */
+  entries: EntryStatus | null;
   payToken: string;
   /**
    * Ажилтны данстай холбоос — байвал энэ хүн тайлангаас хасагдана.
@@ -382,6 +386,7 @@ export class MemberService {
       hikSyncedAt: m.hikSyncedAt,
       loopyCardSerial: m.loopyCardSerial,
       walletDevices: m.walletDevices,
+      entries: await loadEntryStatus(this.ds.manager, m.id, this.tz),
       payToken: m.payToken,
       createdAt: m.createdAt,
       updatedAt: m.updatedAt,

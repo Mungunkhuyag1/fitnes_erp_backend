@@ -17,6 +17,8 @@ export interface PackageView {
   id: string;
   name: string;
   days: number;
+  /** `null` = хоногийн багц (хязгааргүй оролт). */
+  entries: number | null;
   price: number;
   audience: PackageAudience;
   audienceLabel: string;
@@ -60,6 +62,7 @@ export class PackageService {
       this.repo.create({
         name: dto.name.trim(),
         days: dto.days,
+        entries: dto.entries ?? null,
         price: String(dto.price),
         sortOrder: dto.sortOrder ?? 0,
         audience: dto.audience ?? PackageAudience.STANDARD,
@@ -81,6 +84,7 @@ export class PackageService {
     // Хугацаа/үнэ өөрчлөгдөхөд АЛЬ ХЭДИЙН зарагдсан гишүүнчлэл хөндөгдөхгүй —
     // `memberships` дэвтэрт тухайн үеийн `days`/`amount` хуулбарлагдсан байдаг.
     if (dto.days !== undefined) p.days = dto.days;
+    if (dto.entries !== undefined) p.entries = dto.entries;
     if (dto.price !== undefined) p.price = String(dto.price);
     if (dto.sortOrder !== undefined) p.sortOrder = dto.sortOrder;
     if (dto.active !== undefined) p.active = dto.active;
@@ -124,6 +128,7 @@ export class PackageService {
       id: p.id,
       name: p.name,
       days: p.days,
+      entries: p.entries ?? null,
       // `bigint` нь драйвераас string ирдэг — гадагш тоо болгож өгнө.
       price: Number(p.price),
       audience: p.audience,
